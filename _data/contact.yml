@@ -10,8 +10,8 @@
   icon: "fas fa-envelope"
   noblank: true # open link in current tab
 
-- type: rss
-  icon: "fas fa-rss"
+- type: tistory
+  icon: "fas fa-blog"
   url: 'https://sunghwan.it.kr'
   noblank: true
 # Uncomment and complete the url below to enable more contact options
