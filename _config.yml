@@ -39,11 +39,9 @@ social:
   fediverse_handle: # fill in your fediverse handle. E.g. "@username@domain.com"
   links:
     # The first element serves as the copyright owner's link
+    - https://github.com/ssunghwan
     - https://www.linkedin.com/in/ssunghwan
-    - https://github.com/username # change to your GitHub homepage
-    # Uncomment below to add more social links
-    # - https://www.facebook.com/username
-    # - https://www.linkedin.com/in/username
+    - https://sunghwan.it.kr
 
 # Site Verification Settings
 webmaster_verifications:
