@@ -9,13 +9,12 @@ tags: [aws, efs, disk, stunnel]
 
 RCA 카테고리에서는 제가 실수한 부분들이나, 몰랐던 부분들을 정리하고자 개설하게 되었으며 참고 하셔도 좋을 것 같습니다 :)
 
-> **이번 글 요약**
->
-> 사용 중이던 EFS 파일시스템 삭제 이후, 인스턴스의 stunnel 기반 EFS 마운트가 DNS 이름을 계속 조회하며
-> syslog에 초당 수백 줄의 에러 로그를 무한 기록.
-> /var/log/syslog가 수 십GB로 폭증 → 루트 디스크 100% → sudo, snapd, SSM Agent, vim, systemd-resolved까지
-> 연쇄적으로 장애.
+---
+**이번 글 요약**
+> 사용 중이던 EFS 파일시스템 삭제 이후, 인스턴스의 stunnel 기반 EFS 마운트가 DNS 이름을 계속 조회하며 syslog에 초당 수백 줄의 에러 로그를 무한 기록.<br>
+> `/var/log/syslog`가 수 십GB로 폭증 → 루트 디스크 100% → sudo, snapd, SSM Agent, vim, systemd-resolved까지 연쇄적으로 장애.<br>
 > 디스크 공간 즉시 확보 → EFS 재시도 차단 → DNS 복구 → snapd/SSM 복구 순서로 해결.
+{: .prompt-info }
 
 ---
 
