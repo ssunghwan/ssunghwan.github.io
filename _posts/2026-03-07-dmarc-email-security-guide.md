@@ -61,7 +61,7 @@ TXT 레코드는 DNS의 범용 텍스트 저장소입니다. 원래는 사람이
 > RFC 7208로 표준화되어 있으며, 수신 서버가 발신 IP를 DNS에서 조회해 허가 여부를 판단합니다.
 {: .prompt-tip }
 
-** 동작 원리**
+**동작 원리**
 
 ```
 발신 흐름:
@@ -76,13 +76,13 @@ TXT 레코드는 DNS의 범용 텍스트 저장소입니다. 원래는 사람이
      포함 안되면 → SPF SOFTFAIL (~all) 또는 HARDFAIL (-all)
 ```
 
-** SPF 레코드 문법**
+**SPF 레코드 문법**
 
 ```
 v=spf1 [메커니즘...] [all]
 ```
 
-** 주요 메커니즘**
+**주요 메커니즘**
 
 | 메커니즘 | 설명 | 예시 |
 | --- | --- | --- |
@@ -111,13 +111,13 @@ v=spf1 include:spf.example.com ~all
 v=spf1 include:spf.example.com -all
 ```
 
-> ** SPF의 한계**<br>
+> **SPF의 한계**<br>
 > SPF는 봉투 발신자(Envelope From, Return-Path)의 IP만 검증합니다.<br>
 > 사용자가 메일 클라이언트에서 보는 From: 헤더(Header From)와는 별개입니다.<br>
 > 이 간극을 이용한 공격(Display Name Spoofing)은 SPF만으로 막을 수 없으며, DMARC의 **Alignment 검사**가 이를 보완합니다.
 {: .prompt-warning }
 
-> ** DNS Lookup 제한**<br>
+> **DNS Lookup 제한**<br>
 > SPF 평가 시 include:, a:, mx: 등의 DNS 조회는 **최대 10회**로 제한됩니다 (RFC 7208 §4.6.4).<br>
 > 이를 초과하면 PermError 처리되어 SPF 검증이 실패합니다.
 {: .prompt-danger }
@@ -136,7 +136,7 @@ v=spf1 include:A include:B include:C include:D include:E \
 > RFC 6376으로 표준화되어 있으며, 비대칭 암호화(공개키/개인키 쌍)를 사용합니다.
 {: .prompt-tip }
 
-** 동작 원리**
+**동작 원리**
 
 ```
 발신 측 (메일 서버):
@@ -156,7 +156,7 @@ v=spf1 include:A include:B include:C include:D include:E \
   5. 검증 성공 → DKIM PASS / 실패 → DKIM FAIL
 ```
 
-** DKIM DNS 레코드 구조**
+**DKIM DNS 레코드 구조**
 
 레코드 이름 형식: `{셀렉터}._domainkey.{도메인}`
 
@@ -186,7 +186,7 @@ google._domainkey.example.com  → Google Workspace용 키
 
 이 구조 덕분에 서비스별로 DKIM 키를 독립적으로 관리하고 교체할 수 있습니다.
 
-** SPF와 DKIM의 결정적 차이**
+**SPF와 DKIM의 결정적 차이**
 
 | **구분** | **SPF** | **DKIM** |
 | --- | --- | --- |
@@ -215,7 +215,7 @@ DKIM Alignment: DKIM-Signature의 d= 도메인 == Header From 도메인?
 둘 다 실패 → DMARC FAIL → p= 정책 적용
 ```
 
-** DMARC 레코드 문법**
+**DMARC 레코드 문법**
 
 레코드 이름: `_dmarc.{도메인}` (항상 이 형식)
 
@@ -244,7 +244,7 @@ p=quarantine → 실패 메일을 스팸함으로 격리
 p=reject     → 실패 메일을 완전 거부 (가장 강력)
 ```
 
-** DMARC 도입 권장 단계**
+**DMARC 도입 권장 단계**
 
 ```
 1단계: p=none; rua=mailto:dmarc@your-domain.com
@@ -268,7 +268,7 @@ p=reject     → 실패 메일을 완전 거부 (가장 강력)
 - **DKIM** : 서명 검증 및 무결성 확인
 - **DMARC** : SPF + DKIM 종합하여 Alignment 검사, 정책에 따라 집행
 
-** DMARC 판정 매트릭스**
+**DMARC 판정 매트릭스**
 
 | SPF | DKIM | DMARC 결과 | 비고 |
 | --- | --- | --- | --- |
@@ -291,7 +291,7 @@ p=reject     → 실패 메일을 완전 거부 (가장 강력)
 
 ## 04. 실무 설정 예시
 
-** 다중 발송 서비스 SPF 통합**
+**다중 발송 서비스 SPF 통합**
 
 여러 이메일 서비스를 쓸 때 SPF는 **반드시 하나의 레코드에 통합**해야 합니다.
 
@@ -304,7 +304,7 @@ example.com  TXT  "v=spf1 include:spf1.service-b.com ~all"
 example.com  TXT  "v=spf1 include:spf1.service-a.com include:spf1.service-b.com ~all"
 ```
 
-** 서비스별 DKIM 레코드 구성**
+**서비스별 DKIM 레코드 구성**
 
 ```bash
 # 이메일 서비스 A용 DKIM
@@ -317,7 +317,7 @@ ds._domainkey.example.com     CNAME  dkim.service-b.co.kr
 google._domainkey.example.com TXT  "v=DKIM1; k=rsa; p=GFEDCBA..."
 ```
 
-** DMARC 설정**
+**DMARC 설정**
 
 ```bash
 # 초기 모니터링 단계
