@@ -2,7 +2,7 @@
 title: "[Postmortem] 이커머스 이벤트 중 발생한 RDS 간헐적 장애 - N+1 쿼리"
 date: 2026-02-23 03:59:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
-tags: [rds, mysql, n+1, postmortem, aws, ecommerce]
+tags: [rds, database, n+1 query]
 ---
 
 안녕하세요,
