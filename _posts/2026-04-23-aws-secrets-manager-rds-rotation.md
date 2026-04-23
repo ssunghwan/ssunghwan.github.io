@@ -52,10 +52,9 @@ DB_PASSWORD = credentials['password']  # 런타임에 동적으로 로드
 Secrets Manager Rotation은 **Lambda 함수를 4단계로 순차 호출**하여 패스워드를 안전하게 교체한다.
 
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│createSecret │ →  │  setSecret  │ →  │ testSecret  │ →  │finishSecret │
-│  새 PW 생성 │    │ DB에 PW 반영│    │  접속 검증  │    │버전 전환 O  │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+| createSecret | → | setSecret | → | testSecret | → | finishSecret |
+|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| 새 PW 생성 | | DB에 PW 반영 | | 접속 검증 | | 버전 전환 완료 |
 ```
 
 | 단계 | 역할 |
