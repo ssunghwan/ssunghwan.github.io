@@ -1,5 +1,5 @@
 ---
-title: "[RCA] AWS Secrets Manager ThrottlingException — 이커머스 플랫폼"
+title: "AWS Secrets Manager ThrottlingException"
 date: 2026-04-24 00:00:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
 tags: [aws, secrets-manager, throttling, rca, php, apcu, imdsv2, mod-php, php-fpm, sigv4]
