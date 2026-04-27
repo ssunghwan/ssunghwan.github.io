@@ -1,5 +1,5 @@
 ---
-title: "CloudFront 캐싱 정책 완벽 가이드 - 장애 사례와 올바른 설정"
+title: "CloudFront Failure Cases and the Right Guide"
 date: 2026-01-27 01:51:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
 tags: [aws, cloudfront, cdn, cache, cache-policy, origin-request-policy]
