@@ -1,5 +1,5 @@
 ---
-title: "[Postmortem] 이커머스 이벤트 중 발생한 RDS 간헐적 장애 - N+1 쿼리"
+title: "RDS Intermittent Failure During E-commerce Event - N+1 Query"
 date: 2026-02-23 03:59:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
 tags: [rds, database, n+1 query]
