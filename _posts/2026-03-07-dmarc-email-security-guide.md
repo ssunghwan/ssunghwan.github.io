@@ -1,5 +1,5 @@
 ---
-title: "DMARC로 이메일 발송 변조를 예방하기"
+title: "Email Tamper Prevention Guide Using DMARC"
 date: 2026-03-07 03:49:00 +0900
 categories: [Compliance & Vulnerability, Application & Network]
 tags: [dmarc, spf, dkim, email security]
