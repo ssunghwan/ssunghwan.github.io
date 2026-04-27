@@ -1,5 +1,5 @@
 ---
-title: "AWS Secrets Manager RDS 자동 교체(Rotation) 구성 및 트러블슈팅"
+title: "AWS Secrets Manager RDS Automatic Rotation Configuration Guide"
 date: 2026-04-23 00:00:00 +0900
 categories: [Compliance & Vulnerability, Application & Network]
 tags: [aws, secrets-manager, rds, rotation, lambda, kms]
