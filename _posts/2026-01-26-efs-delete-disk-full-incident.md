@@ -1,13 +1,11 @@
 ---
-title: "[Incident Report] EFS 삭제 후 Disk 마비"
+title: "Disk Memory failure after EFS deletion"
 date: 2026-01-26 01:16:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
 tags: [aws, efs, disk, stunnel]
 ---
 
-안녕하세요?
-
-RCA 카테고리에서는 제가 실수한 부분들이나, 몰랐던 부분들을 정리하고자 개설하게 되었으며 참고 하셔도 좋을 것 같습니다 :)
+안녕하세요? 해당 챕터에서는 저의 휴먼 에러로 발생한 EFS 관련 장애에 대해 다뤄볼 예정입니다.
 
 ---
 **이번 글 요약**
