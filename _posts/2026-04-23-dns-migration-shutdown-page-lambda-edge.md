@@ -1,5 +1,5 @@
 ---
-title: "DNS 이관 작업 일지 - 셧다운 페이지 구성 및 IP 기반 접근 제어"
+title: "Configuring a Maintenance Notice Page with CloudFront+S3+Lambda"
 date: 2026-04-23 00:00:00 +0900
 categories: [Infrastructure, Root Cause Analysis]
 tags: [aws, cloudfront, lambda-edge, s3, dns, route53, waap]
