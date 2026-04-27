@@ -1,5 +1,5 @@
 ---
-title: "법적 데이터 보존 파이프라인 구성 가이드 - 주문/결제 데이터 5년 보존"
+title: "Configuration of Legally Retained Order/Payment Data Pipeline for ISMS-P Certification"
 date: 2026-03-30 00:00:00 +0900
 categories: [Compliance & Vulnerability, Application & Network]
 tags: [aws, lambda, s3, glacier, eventbridge, sns, secrets-manager, rds, isms-p]
