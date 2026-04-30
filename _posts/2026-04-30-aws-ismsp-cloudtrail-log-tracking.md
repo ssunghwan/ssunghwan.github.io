@@ -1,7 +1,7 @@
 ---
 title: "AWS CloudTrail Based ISMS-P Real-Time Security Monitoring Setup Guide"
 date: 2026-04-30 00:00:00 +0900
-categories: [Compliance & Vulnerability, Cloud & Infrastructure]
+categories: [Compliance & Vulnerability, Application & Network]
 tags: [aws, cloudtrail, cloudwatch, lambda, glue, athena, isms-p, kms, sns, eventbridge]
 ---
 
