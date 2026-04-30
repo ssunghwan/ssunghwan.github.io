@@ -220,21 +220,6 @@ SNS → 주제 → 주제 생성
 > 구독 생성 후 수신 이메일 주소로 발송된 **Confirm subscription** 링크를 반드시 클릭해야 한다.
 {: .prompt-warning }
 
-**SNS 액세스 정책에 EventBridge 권한 추가**:
-
-```json
-{
-  "Sid": "AllowEventBridgePublish",
-  "Effect": "Allow",
-  "Principal": { "Service": "events.amazonaws.com" },
-  "Action": "SNS:Publish",
-  "Resource": "arn:aws:sns:ap-northeast-2:<account-id>:ISMS-CloudTrail-Alert",
-  "Condition": {
-    "StringEquals": { "AWS:SourceAccount": "<account-id>" }
-  }
-}
-```
-
 ### 4-7. Lambda 함수 생성
 
 > **CloudWatch Logs Subscription Filter + Lambda 방식을 선택한 이유**<br>
