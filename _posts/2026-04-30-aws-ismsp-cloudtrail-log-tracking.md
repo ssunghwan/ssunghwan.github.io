@@ -1,24 +1,25 @@
 ---
-title: AWS CloudTrail 기반 ISMS-P 실시간 보안 모니터링 구축 가이드
-date: 2026-04-30
-categories: [Compliance & Vulnerability, Application & Network]
+title: "AWS CloudTrail Based ISMS-P Real-Time Security Monitoring Setup Guide"
+date: 2026-04-30 00:00:00 +0900
+categories: [Compliance & Vulnerability, Cloud & Infrastructure]
 tags: [aws, cloudtrail, cloudwatch, lambda, glue, athena, isms-p, kms, sns, eventbridge]
 ---
 
-> **환경**: AWS ap-northeast-2 / Production  
+> **환경**: AWS ap-northeast-2 / Production<br>
 > **목적**: ISMS-P 인증 대응을 위한 CloudTrail 기반 실시간 보안 모니터링 및 이상 이벤트 알람 체계 구축
+{: .prompt-info }
 
 ---
 
 ## 1. 개요
 
-### 1-1. 배경
+### 배경
 
 이커머스 플랫폼 운영 환경에서 ISMS-P 인증 대응을 위해 AWS CloudTrail 로그를 실시간으로 모니터링하고, 이상 이벤트 발생 시 즉시 알람을 수신할 수 있는 체계가 필요했다.
 
 기존에는 CloudTrail 로그가 S3에만 저장되어 있어 실시간 탐지가 불가능했으며, 사후 분석 시에도 로그를 수동으로 확인해야 하는 불편함이 있었다.
 
-### 1-2. 요구사항
+### 요구사항
 
 - **실시간 알람**: 보안 이벤트 발생 시 즉시 이메일 알람 수신
 - **전 리전 커버리지**: IAM(us-east-1), 콘솔 로그인(랜덤 리전) 등 모든 리전 이벤트 탐지
@@ -26,7 +27,7 @@ tags: [aws, cloudtrail, cloudwatch, lambda, glue, athena, isms-p, kms, sns, even
 - **사후 분석**: ISMS-P 심사 대비 SQL 기반 감사 로그 조회
 - **ISMS-P 대응**: 관련 통제 항목 자동화
 
-### 1-3. ISMS-P 대응 항목
+### ISMS-P 대응 항목
 
 | ISMS-P 항목 | 구현 내용 |
 |---|---|
@@ -39,8 +40,6 @@ tags: [aws, cloudtrail, cloudwatch, lambda, glue, athena, isms-p, kms, sns, even
 ---
 
 ## 2. 사용 서비스 및 역할
-
-본 구성에서 사용하는 AWS 서비스들의 역할을 먼저 이해하고 진행하면 전체 흐름 파악에 도움이 된다.
 
 | 서비스 | 역할 |
 |---|---|
@@ -76,7 +75,7 @@ CloudTrail (전 리전 API 호출 기록)
             └── Subscription Filter
                         │
                         ▼
-                   Lambda (이벤트 분석)
+               Lambda (이벤트 분석)
                         │
                         ├── Root 계정 사용 탐지
                         ├── IAM Policy 변경 탐지
@@ -102,12 +101,12 @@ CloudTrail (전 리전 API 호출 기록)
 ```bash
 # Log Group 생성
 aws logs create-log-group \
-  --log-group-name /aws/cloudtrail/org-management-trail-operate \
+  --log-group-name /aws/cloudtrail/<your-trail-name> \
   --region ap-northeast-2
 
 # 보존 기간 365일 설정 (ISMS-P 2.9.4 요건)
 aws logs put-retention-policy \
-  --log-group-name /aws/cloudtrail/org-management-trail-operate \
+  --log-group-name /aws/cloudtrail/<your-trail-name> \
   --retention-in-days 365 \
   --region ap-northeast-2
 ```
@@ -116,9 +115,10 @@ aws logs put-retention-policy \
 
 CloudTrail이 CloudWatch Logs로 로그를 전송하려면 전용 IAM Role이 필요하다.
 
-> **인라인 정책을 사용하는 이유**  
-> AWS 관리형 정책 중 이 용도에 맞는 정책이 존재하지 않는다.  
+> **인라인 정책을 사용하는 이유**<br>
+> AWS 관리형 정책 중 이 용도에 맞는 정책이 존재하지 않는다.<br>
 > `CloudWatchLogsFullAccess` 같은 광범위한 정책 사용은 ISMS-P 최소 권한 원칙 위반으로 심사 시 지적받을 수 있다.
+{: .prompt-warning }
 
 **Trust Policy**:
 
@@ -141,7 +141,7 @@ CloudTrail이 CloudWatch Logs로 로그를 전송하려면 전용 IAM Role이 �
   "Statement": [{
     "Effect": "Allow",
     "Action": ["logs:CreateLogStream", "logs:PutLogEvents"],
-    "Resource": "arn:aws:logs:ap-northeast-2:123456789012:log-group:/aws/cloudtrail/org-management-trail-operate:*"
+    "Resource": "arn:aws:logs:ap-northeast-2:<account-id>:log-group:/aws/cloudtrail/<your-trail-name>:*"
   }]
 }
 ```
@@ -149,6 +149,8 @@ CloudTrail이 CloudWatch Logs로 로그를 전송하려면 전용 IAM Role이 �
 ### 4-3. KMS 키 정책 업데이트
 
 CloudWatch Logs와 Glue Crawler가 KMS 암호화된 S3 버킷에 접근할 수 있도록 키 정책에 Statement를 추가한다.
+
+**CloudWatch Logs 권한**:
 
 ```json
 {
@@ -159,17 +161,19 @@ CloudWatch Logs와 Glue Crawler가 KMS 암호화된 S3 버킷에 접근할 수 �
   "Resource": "*",
   "Condition": {
     "ArnLike": {
-      "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:*:123456789012:log-group:/aws/cloudtrail/org-management-trail-operate"
+      "kms:EncryptionContext:aws:logs:arn": "arn:aws:logs:*:<account-id>:log-group:/aws/cloudtrail/<your-trail-name>"
     }
   }
 }
 ```
 
+**Glue Crawler 권한**:
+
 ```json
 {
   "Sid": "Allow Glue Crawler",
   "Effect": "Allow",
-  "Principal": { "AWS": "arn:aws:iam::123456789012:role/{prefix}-crawling-apne2-role" },
+  "Principal": { "AWS": "arn:aws:iam::<account-id>:role/<glue-crawler-role>" },
   "Action": ["kms:Decrypt", "kms:GenerateDataKey*", "kms:DescribeKey"],
   "Resource": "*"
 }
@@ -181,16 +185,17 @@ CloudWatch Logs와 Glue Crawler가 KMS 암호화된 S3 버킷에 접근할 수 �
 
 ```bash
 aws logs associate-kms-key \
-  --log-group-name /aws/cloudtrail/org-management-trail-operate \
-  --kms-key-id arn:aws:kms:ap-northeast-2:123456789012:key/{your-kms-key-id} \
+  --log-group-name /aws/cloudtrail/<your-trail-name> \
+  --kms-key-id arn:aws:kms:ap-northeast-2:<account-id>:key/<kms-key-id> \
   --region ap-northeast-2
 ```
 
 ### 4-5. Metric Filter 7개 생성 (대시보드용)
 
-> **CloudWatch Metric Filter란?**  
-> CloudWatch Logs로 수집되는 로그에서 특정 패턴을 실시간으로 감지하여 수치(지표)로 변환하는 규칙이다.  
+> **CloudWatch Metric Filter란?**<br>
+> CloudWatch Logs로 수집되는 로그에서 특정 패턴을 실시간으로 감지하여 수치(지표)로 변환하는 규칙이다.<br>
 > 실제 알람 발송은 Lambda + SNS가 담당하며, Metric Filter는 CloudWatch 대시보드 시각화에 활용한다.
+{: .prompt-info }
 
 | 필터명 | 패턴 | 지표명 |
 |---|---|---|
@@ -208,11 +213,12 @@ aws logs associate-kms-key \
 
 ```
 SNS → 주제 → 주제 생성
-- 유형: 표준
-- 이름: ISMS-CloudTrail-Alert
+  유형: 표준
+  이름: ISMS-CloudTrail-Alert
 ```
 
-구독 생성 후 수신 이메일 주소로 발송된 **Confirm subscription** 링크를 반드시 클릭해야 한다.
+> 구독 생성 후 수신 이메일 주소로 발송된 **Confirm subscription** 링크를 반드시 클릭해야 한다.
+{: .prompt-warning }
 
 **SNS 액세스 정책에 EventBridge 권한 추가**:
 
@@ -222,21 +228,21 @@ SNS → 주제 → 주제 생성
   "Effect": "Allow",
   "Principal": { "Service": "events.amazonaws.com" },
   "Action": "SNS:Publish",
-  "Resource": "arn:aws:sns:ap-northeast-2:123456789012:ISMS-CloudTrail-Alert",
+  "Resource": "arn:aws:sns:ap-northeast-2:<account-id>:ISMS-CloudTrail-Alert",
   "Condition": {
-    "StringEquals": { "AWS:SourceAccount": "123456789012" }
+    "StringEquals": { "AWS:SourceAccount": "<account-id>" }
   }
 }
 ```
 
 ### 4-7. Lambda 함수 생성
 
-> **CloudWatch Logs Subscription Filter + Lambda 방식을 선택한 이유**  
-> EventBridge를 통한 직접 탐지를 먼저 시도했으나, IAM 이벤트는 `us-east-1`, 콘솔 로그인은 로그인 시 선택한 리전에 기록되는 등 리전 분산 문제로 단일 리전 EventBridge Rule만으로는 전 리전 이벤트를 커버할 수 없었다.  
+> **CloudWatch Logs Subscription Filter + Lambda 방식을 선택한 이유**<br>
+> EventBridge를 통한 직접 탐지를 먼저 시도했으나, IAM 이벤트는 `us-east-1`, 콘솔 로그인은 로그인 시 선택한 리전에 기록되는 등 리전 분산 문제로 단일 리전 EventBridge Rule만으로는 전 리전 이벤트를 커버할 수 없었다.<br>
 > CloudTrail → CloudWatch Logs는 **전 리전 이벤트를 ap-northeast-2 단일 Log Group으로 수집**하므로, Subscription Filter + Lambda 방식이 유일하게 전 리전을 커버할 수 있는 구조다.
+{: .prompt-tip }
 
-**함수명**: `ISMSP-UnauthorizedIPDetector`  
-**런타임**: Python 3.12
+**함수명**: `ISMSP-UnauthorizedIPDetector` / **런타임**: Python 3.12
 
 ```python
 import json
@@ -247,7 +253,7 @@ import os
 
 sns = boto3.client('sns', region_name='ap-northeast-2')
 
-ALLOWED_IPS = [ip.strip() for ip in os.environ.get('ALLOWED_IPS', '').split(',')]
+ALLOWED_IPS   = [ip.strip() for ip in os.environ.get('ALLOWED_IPS', '').split(',')]
 SNS_TOPIC_ARN = os.environ.get('SNS_TOPIC_ARN', '')
 
 SECURITY_EVENTS = [
@@ -291,10 +297,10 @@ AWS 콘솔 → CloudTrail → 이벤트 기록에서 상세 내용을 확인하�
 """
 
 def lambda_handler(event, context):
-    log_data = event.get('awslogs', {}).get('data', '')
-    compressed = base64.b64decode(log_data)
+    log_data     = event.get('awslogs', {}).get('data', '')
+    compressed   = base64.b64decode(log_data)
     decompressed = gzip.decompress(compressed)
-    log_events = json.loads(decompressed)
+    log_events   = json.loads(decompressed)
 
     for log_event in log_events.get('logEvents', []):
         try:
@@ -359,7 +365,7 @@ def lambda_handler(event, context):
 | 키 | 값 |
 |---|---|
 | `ALLOWED_IPS` | `허가된IP1,허가된IP2,...` |
-| `SNS_TOPIC_ARN` | `arn:aws:sns:ap-northeast-2:123456789012:ISMS-CloudTrail-Alert` |
+| `SNS_TOPIC_ARN` | `arn:aws:sns:ap-northeast-2:<account-id>:ISMS-CloudTrail-Alert` |
 
 **Lambda IAM 인라인 정책**:
 
@@ -369,14 +375,17 @@ def lambda_handler(event, context):
   "Statement": [{
     "Effect": "Allow",
     "Action": "sns:Publish",
-    "Resource": "arn:aws:sns:ap-northeast-2:123456789012:ISMS-CloudTrail-Alert"
+    "Resource": "arn:aws:sns:ap-northeast-2:<account-id>:ISMS-CloudTrail-Alert"
   }]
 }
 ```
 
 ### 4-8. CloudWatch Logs Subscription Filter 생성
 
-CloudWatch → 로그 그룹 → `/aws/cloudtrail/org-management-trail-operate` → **구독 필터** 탭 → **Lambda 구독 필터 생성**
+```
+CloudWatch → 로그 그룹 → /aws/cloudtrail/<your-trail-name>
+→ 구독 필터 탭 → Lambda 구독 필터 생성
+```
 
 | 항목 | 값 |
 |---|---|
@@ -387,16 +396,17 @@ CloudWatch → 로그 그룹 → `/aws/cloudtrail/org-management-trail-operate` 
 
 ### 4-9. Glue + Athena 분석 환경 구성
 
-> **Athena는 실시간 도구가 아니다**  
-> Athena는 S3에 저장된 로그를 SQL로 분석하는 도구로, 실시간 알람과는 역할이 다르다.  
+> **Athena는 실시간 도구가 아니다**<br>
+> Athena는 S3에 저장된 로그를 SQL로 분석하는 도구로, 실시간 알람과는 역할이 다르다.<br>
 > ISMS-P 심사 시 "지난 달 특정 IP 접근 이력", "IAM 권한 변경 전체 이력" 등을 SQL로 즉시 추출하는 감사 증적 용도로 활용한다.
+{: .prompt-info }
 
 **Glue 크롤러 설정**:
 
 | 항목 | 값 |
 |---|---|
-| 크롤러 이름 | `{prefix}-monitoring-apne2-crawler` |
-| S3 경로 | `s3://aws-cloudtrail-logs-example/AWSLogs/123456789012/CloudTrail/ap-northeast-2/` |
+| 크롤러 이름 | `<prefix>-monitoring-crawler` |
+| S3 경로 | `s3://<cloudtrail-bucket>/AWSLogs/<account-id>/CloudTrail/ap-northeast-2/` |
 | Recrawl behavior | 최초: `Crawl all sub-folders` → 이후: `Crawl new sub-folders only` |
 | 스케줄 | 매일 01:00 AM |
 | 출력 데이터베이스 | `cloudtrail_analysis` |
@@ -421,7 +431,7 @@ ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
 WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 STORED AS INPUTFORMAT 'com.amazon.emr.cloudtrail.CloudTrailInputFormat'
 OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat'
-LOCATION 's3://aws-cloudtrail-logs-example/AWSLogs/123456789012/CloudTrail/ap-northeast-2/';
+LOCATION 's3://<cloudtrail-bucket>/AWSLogs/<account-id>/CloudTrail/ap-northeast-2/';
 ```
 
 **ISMS-P 감사 분석 쿼리**:
@@ -451,14 +461,12 @@ ORDER BY eventtime DESC;
 
 ### 4-10. CloudWatch 대시보드 구성
 
-CloudWatch → 대시보드 → **대시보드 생성**
-
 | 위젯 | 유형 | 내용 |
 |---|---|---|
 | ISMS-P 보안 경보 현황 | 경보 상태 | 7개 Alarm 전체 상태 |
 | 보안 이벤트 발생 추이 | 행 차트 | `ISMS-CloudTrail` 네임스페이스 7개 지표 |
 | 이벤트 유형별 발생 건수 | 막대 차트 | Logs Insights 쿼리 |
-| 실시간 CloudTrail 이벤트 | 로그 테이블 | 최근 이벤트 스트림 |
+| 실시간 CloudTrail 이벤트 로그 | 테이블 | 최근 이벤트 스트림 |
 
 ---
 
@@ -480,7 +488,7 @@ ConsoleLogin    → 로그인 시 선택한 리전 EventBridge로 전달 (랜덤
 EC2/RDS/SG      → 리소스가 존재하는 리전 EventBridge로 전달
 ```
 
-`ap-northeast-2`에만 Rule을 생성했으므로 IAM 이벤트(`us-east-1`)와 콘솔 로그인(랜덤 리전)은 아예 탐지가 불가능한 구조였다.
+`ap-northeast-2`에만 Rule을 생성했으므로 IAM 이벤트(`us-east-1`)와 콘솔 로그인(랜덤 리전)은 탐지가 불가능한 구조였다.
 
 **해결**
 
@@ -493,8 +501,8 @@ CloudTrail (전 리전) → EventBridge (ap-northeast-2 only) → SNS
 
 [최종 구성 — 성공]
 CloudTrail (전 리전) → CloudWatch Logs (ap-northeast-2, 전 리전 수집)
-                              ↓ Subscription Filter
-                           Lambda → SNS
+                               ↓ Subscription Filter
+                            Lambda → SNS
 ```
 
 ---
@@ -518,7 +526,7 @@ KMS 키 정책에 Glue Crawler IAM Role을 Principal로 추가하지 않으면 �
   "Sid": "Allow Glue Crawler",
   "Effect": "Allow",
   "Principal": {
-    "AWS": "arn:aws:iam::123456789012:role/{prefix}-crawling-apne2-role"
+    "AWS": "arn:aws:iam::<account-id>:role/<glue-crawler-role>"
   },
   "Action": ["kms:Decrypt", "kms:GenerateDataKey*", "kms:DescribeKey"],
   "Resource": "*"
@@ -553,7 +561,7 @@ struct<keyId:string,limit:string,encryptionAlgorithm:string,...>
 
 **원인**
 
-CloudTrail 로그는 이벤트 종류마다 `requestparameters` 구조가 완전히 다르다. 예를 들어 `CreatePolicy` 이벤트의 `requestparameters`와 `AuthorizeSecurityGroupIngress`의 `requestparameters`는 완전히 다른 JSON 구조를 갖는다. Glue 크롤러가 이를 통합된 단일 STRUCT로 표현하려다 보니 수백 개의 필드가 생기고 Athena가 이를 처리하지 못했다.
+CloudTrail 로그는 이벤트 종류마다 `requestparameters` 구조가 완전히 다르다. Glue 크롤러가 이를 통합된 단일 STRUCT로 표현하려다 보니 수백 개의 필드가 생기고 Athena가 이를 처리하지 못했다.
 
 **조치**
 
@@ -586,19 +594,25 @@ WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 
 ## 7. 최종 구성 체크리스트
 
-| 항목 | 상태 |
-|---|---|
-| CloudTrail S3 저장 + KMS 암호화 | ✅ |
-| CloudWatch Logs 연동 + KMS 암호화 | ✅ |
-| Log Group 보존 기간 365일 | ✅ |
-| Metric Filter 7개 (대시보드용) | ✅ |
-| SNS Topic + 이메일 구독 확인 | ✅ |
-| CloudWatch Alarm 7개 (대시보드용) | ✅ |
-| Lambda 함수 (이벤트 분석 + IP 검증) | ✅ |
-| Subscription Filter → Lambda 연결 | ✅ |
-| Glue Crawler 일일 스케줄 (매일 01:00) | ✅ |
-| Athena 테이블 + 파티션 등록 | ✅ |
-| CloudWatch 대시보드 | ✅ |
+> **CloudTrail**<br>
+> - S3 저장 + KMS 암호화 ✅<br>
+> - CloudWatch Logs 연동 + KMS 암호화 ✅<br>
+> - Log Group 보존 기간 365일 ✅
+>
+> **CloudWatch**<br>
+> - Metric Filter 7개 (대시보드용) ✅<br>
+> - CloudWatch Alarm 7개 (대시보드용) ✅<br>
+> - 대시보드 ✅
+>
+> **알람 체계**<br>
+> - SNS Topic + 이메일 구독 확인 ✅<br>
+> - Lambda 함수 (이벤트 분석 + IP 검증) ✅<br>
+> - Subscription Filter → Lambda 연결 ✅
+>
+> **분석 환경**<br>
+> - Glue Crawler 일일 스케줄 (매일 01:00) ✅<br>
+> - Athena 테이블 + 파티션 등록 ✅
+{: .prompt-tip }
 
 ---
 
@@ -608,7 +622,3 @@ WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 - [CloudWatch Logs Subscription Filters](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/Subscriptions.html)
 - [Amazon Athena CloudTrail Logs](https://docs.aws.amazon.com/athena/latest/ug/cloudtrail-logs.html)
 - [AWS Glue Crawler Best Practices](https://docs.aws.amazon.com/glue/latest/dg/crawler-configuration.html)
-
-[Compliance & Vulnerability](https://ssunghwan.github.io/categories/compliance-vulnerability/), [Cloud & Infrastructure](https://ssunghwan.github.io/categories/cloud-infrastructure/)
-
-[aws](https://ssunghwan.github.io/tags/aws/) [cloudtrail](https://ssunghwan.github.io/tags/cloudtrail/) [cloudwatch](https://ssunghwan.github.io/tags/cloudwatch/) [lambda](https://ssunghwan.github.io/tags/lambda/) [glue](https://ssunghwan.github.io/tags/glue/) [athena](https://ssunghwan.github.io/tags/athena/) [isms-p](https://ssunghwan.github.io/tags/isms-p/) [kms](https://ssunghwan.github.io/tags/kms/) [sns](https://ssunghwan.github.io/tags/sns/)
