@@ -3,6 +3,7 @@ title: "Legacy PHP E-Commerce: From Docker Containerization to EKS Migration"
 date: 2026-05-07 00:00:00 +0900
 categories: [Kubernetes, EKS Migration Project]
 tags: [docker, php-fpm, apache, tomcat, aws, eks, argocd, opentofu, gitops, aurora, elasticache, karpenter]
+mermaid: true
 ---
 
 > 몇 년간 단일 EC2 인스턴스 위에서 운영되어 온 PHP 기반 이커머스 플랫폼을 AWS EKS로 이전하는 프로젝트를 진행하고 있다.<br>
