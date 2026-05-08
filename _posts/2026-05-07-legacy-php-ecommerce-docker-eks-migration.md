@@ -409,39 +409,45 @@ private function getInstanceCredentials() {
 
 ### 전체 목표 아키텍처
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        GitHub                                   │
-│   app-repo          infra-repo (OpenTofu)    k8s-manifests      │
-│       │                   │                      │              │
-│       └──────┬────────────┘                      │              │
-│              │                                   │              │
-│     GitHub Actions (CI)                      ArgoCD (CD)        │
-│     - Checkmarx SAST 보안 스캔               - K8s 동기화       │
-│     - 이미지 빌드                             - 드리프트 감지   │
-│     - ECR 취약점 스캔 (Trivy)                - 자동 롤백        │
-│     - ECR 푸시                                                  │
-└──────────────┼────────────────────────────────┼─────────────────┘
-               │                                │
-               ▼                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    AWS 계정 (운영)                              │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                    EKS Cluster                           │  │
-│  │                                                          │  │
-│  │  ArgoCD │ External Secrets Operator                      │  │
-│  │  Karpenter │ AWS Load Balancer Controller                │  │
-│  │  EFS CSI Driver │ Metrics Server                         │  │
-│  │                                                          │  │
-│  │  Pod: apache + php-fpm (사이드카)                        │  │
-│  │  Pod: tomcat-sso                                         │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-│  Aurora MySQL (Serverless v2)    ElastiCache Redis (Cluster)    │
-│  EFS (업로드 파일)               Secrets Manager                │
-│  ECR (이미지 레지스트리)          CloudWatch + Container Insights│
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph GitHub
+        A[app-repo] --> CI
+        B[infra-repo<br/>OpenTofu] --> CI
+        C[k8s-manifests] --> CD
+    end
+
+    subgraph CI[GitHub Actions - CI]
+        CI1[Checkmarx SAST 보안 스캔]
+        CI2[이미지 빌드]
+        CI3[ECR 취약점 스캔 - Trivy]
+        CI4[ECR 푸시]
+    end
+
+    subgraph CD[ArgoCD - CD]
+        CD1[K8s 동기화]
+        CD2[드리프트 감지]
+        CD3[자동 롤백]
+    end
+
+    subgraph AWS[AWS 계정 - 운영]
+        subgraph EKS[EKS Cluster]
+            E1[ArgoCD / External Secrets Operator]
+            E2[Karpenter / AWS Load Balancer Controller]
+            E3[EFS CSI Driver / Metrics Server]
+            E4[Pod: apache + php-fpm 사이드카]
+            E5[Pod: tomcat-sso]
+        end
+        F1[Aurora MySQL Serverless v2]
+        F2[ElastiCache Redis Cluster]
+        F3[EFS 업로드 파일]
+        F4[Secrets Manager]
+        F5[ECR 이미지 레지스트리]
+        F6[CloudWatch + Container Insights]
+    end
+
+    CI4 --> C
+    CD --> EKS
 ```
 
 ---
