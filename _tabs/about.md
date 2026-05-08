@@ -60,9 +60,9 @@ order: 4
 
 | 자격증 | 취득 |
 |---|---|
-| AWS Solutions Architect Professional |
-| CKA (Certified Kubernetes Administrator) |
-| CKAD (Certified Kubernetes Application Developer) |
+| AWS Solutions Architect Professional | ✅ |
+| CKA (Certified Kubernetes Administrator) | ✅ |
+| CKAD (Certified Kubernetes Application Developer) | ✅ |
 
 ---
 
