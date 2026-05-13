@@ -590,11 +590,349 @@ CoreDNS Pending (toleration 없어 sys 노드에 스케줄링 불가)
 
 ---
 
-## 12. 다음 단계
+## 12. Pod Identity 상세 동작 원리
+
+### 배경
+
+Kubernetes 파드가 AWS API를 호출하려면 IAM 자격증명이 필요하다. 예를 들어 Karpenter가 EC2 인스턴스를 프로비저닝하거나, External Secrets Operator가 Secrets Manager에서 시크릿을 읽으려면 AWS 권한이 있어야 한다.
+
+과거에는 EC2 Node Role에 권한을 부여하는 방식을 많이 썼다. 하지만 이 방식은 심각한 보안 문제가 있다.
+
+```
+[잘못된 방식]
+EC2 Node Role에 모든 권한 부여
+    ↓
+노드에 올라가는 모든 파드가 그 권한을 공유
+    ↓
+앱 파드, 시스템 파드 구분 없이 EC2 프로비저닝 권한을 가짐
+```
+
+### IRSA vs Pod Identity
+
+AWS가 먼저 내놓은 방식이 IRSA다. OIDC Provider를 통해 특정 Kubernetes ServiceAccount에만 IAM Role을 바인딩하는 방식이다.
+
+| 구분 | IRSA | Pod Identity |
+|---|---|---|
+| 설정 복잡도 | OIDC thumbprint 관리 필요 | 단순 |
+| AWS 권장 여부 | 기존 방식 | 최신 권장 방식 |
+| Karpenter 지원 | v0.32+ | v1.x 공식 지원 |
+| 멀티클러스터 | 클러스터마다 OIDC 관리 | 간소화 |
+| 필수 Add-on | 없음 | eks-pod-identity-agent 필요 |
+
+Pod Identity는 `eks-pod-identity-agent` DaemonSet이 각 노드에서 실행되면서 파드의 자격증명 요청을 처리한다.
+
+### Pod Identity 동작 원리
+
+```
+[파드 기동]
+    ↓
+eks-pod-identity-agent가 파드 감지
+    ↓
+Pod Identity Association 확인
+(namespace: karpenter, serviceAccount: karpenter → Role ARN 매핑)
+    ↓
+파드 환경변수에 자동 주입
+  AWS_CONTAINER_CREDENTIALS_FULL_URI=http://169.254.170.23/v1/credentials
+  AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE=/var/run/secrets/pods.eks.amazonaws.com/...
+    ↓
+파드가 AWS SDK 호출 시 해당 엔드포인트에서 임시 자격증명 발급
+    ↓
+IAM Role assume → AWS API 호출
+```
+
+### Trust Policy
+
+Pod Identity에서는 `pods.eks.amazonaws.com`을 Principal로 설정한다. 이것이 일반 EC2 Role과의 핵심 차이다.
+
+```hcl
+assume_role_policy = jsonencode({
+  Version = "2012-10-17"
+  Statement = [{
+    Effect    = "Allow"
+    Principal = { Service = "pods.eks.amazonaws.com" }
+    Action    = ["sts:AssumeRole", "sts:TagSession"]
+  }]
+})
+```
+
+그리고 어떤 파드가 이 Role을 assume할 수 있는지는 Pod Identity Association으로 제한한다.
+
+```hcl
+resource "aws_eks_pod_identity_association" "karpenter" {
+  cluster_name    = local.cluster_name
+  namespace       = "karpenter"   # karpenter 네임스페이스만
+  service_account = "karpenter"   # karpenter SA만
+  role_arn        = aws_iam_role.karpenter_controller.arn
+}
+```
+
+> `karpenter` 네임스페이스의 `karpenter` ServiceAccount를 사용하는 파드만 이 Role을 assume할 수 있다.<br>
+> 다른 네임스페이스, 다른 ServiceAccount는 절대 이 권한을 가질 수 없다.
+{: .prompt-tip }
+
+---
+
+## 13. Karpenter 구성 검증
+
+### Pod Identity 연동 확인
+
+**Pod Identity Association 등록 확인**
+
+```bash
+aws eks list-pod-identity-associations \
+  --cluster-name <cluster-name> \
+  --region ap-northeast-2
+```
+
+```json
+{
+    "associations": [
+        {
+            "clusterName": "<cluster-name>",
+            "namespace": "karpenter",
+            "serviceAccount": "karpenter",
+            "associationArn": "arn:aws:eks:ap-northeast-2:<account-id>:podidentityassociation/..."
+        }
+    ]
+}
+```
+
+**파드 환경변수 확인**
+
+> Karpenter 컨트롤러 이미지는 Distroless 기반이라 shell이 없다. `kubectl describe`로 환경변수를 확인한다.
+{: .prompt-info }
+
+```bash
+kubectl describe pod -n karpenter <karpenter-pod-name>
+```
+
+```
+Environment:
+  AWS_CONTAINER_CREDENTIALS_FULL_URI:     http://169.254.170.23/v1/credentials
+  AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE: /var/run/secrets/pods.eks.amazonaws.com/serviceaccount/eks-pod-identity-token
+```
+
+`169.254.170.23`은 EKS Pod Identity Agent 엔드포인트다. 이 값이 주입되어 있다는 것은 Pod Identity가 정상 연동된 것을 의미한다.
+
+**Karpenter 로그에서 AWS API 정상 호출 확인**
+
+```bash
+kubectl logs -n karpenter -l app.kubernetes.io/name=karpenter --tail=10 2>&1 | grep -E "ERROR|error"
+```
+
+에러 없이 아래와 같은 INFO 로그만 출력되면 AWS API를 정상 호출 중이다.
+
+```json
+{"level":"INFO","message":"discovered ssm parameter",
+  "parameter":"/aws/service/eks/optimized-ami/1.31/amazon-linux-2023/x86_64/standard/recommended/image_id",
+  "value":"ami-xxxxxxxxxxxxxxxxx"}
+```
+
+---
+
+### 노드 자동 프로비저닝 확인
+
+web NodePool에 스케줄링되는 테스트 파드를 띄워 노드가 자동 생성되는지 확인했다.
+
+```bash
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: karpenter-test
+spec:
+  tolerations:
+    - key: dedicated
+      operator: Equal
+      value: web
+      effect: NoSchedule
+  nodeSelector:
+    role: web
+  containers:
+    - name: test
+      image: public.ecr.aws/amazonlinux/amazonlinux:latest
+      command: ["sleep", "300"]
+EOF
+```
+
+```bash
+kubectl get nodes -w
+```
+
+```
+ip-172-16-1-xxx   Ready   4h  ← sys MNG 노드 (기존)
+ip-172-16-2-xxx   Ready   4h  ← sys MNG 노드 (기존)
+ip-172-16-1-yyy   NotReady  0s  ← Karpenter가 새로 프로비저닝
+ip-172-16-1-yyy   Ready    31s  ← 31초 만에 Ready
+```
+
+> **동작 원리**<br>
+> sys MNG 노드에는 `dedicated=system:NoSchedule` taint가 걸려있다.<br>
+> 테스트 파드는 `dedicated=web:NoSchedule` toleration만 가지므로 sys 노드에 스케줄링되지 않는다.<br>
+> Karpenter가 스케줄링 실패를 감지하고 web NodePool 기준으로 새 EC2를 프로비저닝했다.
+{: .prompt-info }
+
+```bash
+kubectl get nodeclaims
+```
+
+```
+NAME                       TYPE         CAPACITY    ZONE              NODE              READY
+example-web-nodepool-xxx   t3a.medium   on-demand   ap-northeast-2a   ip-172-16-1-yyy   True
+```
+
+---
+
+### Consolidation (노드 자동 제거) 확인
+
+```bash
+kubectl delete pod karpenter-test
+kubectl get nodes -w
+```
+
+NodePool에 `consolidateAfter: 30s`로 설정했기 때문에 파드가 없어진 후 30초 뒤 노드가 자동으로 제거됐다.
+
+```
+ip-172-16-1-yyy  Ready    → 삭제됨 (Karpenter consolidation)
+```
+
+> 비어있는 노드를 자동으로 정리해 불필요한 비용이 발생하지 않도록 한다.
+{: .prompt-tip }
+
+---
+
+### CoreDNS DNS 해석 확인
+
+```bash
+kubectl run dns-test --image=busybox:1.28 --rm -it --restart=Never \
+  --overrides='{"spec":{"tolerations":[{"key":"dedicated","operator":"Equal","value":"system","effect":"NoSchedule"}]}}' \
+  -- nslookup kubernetes.default
+```
+
+```
+Server:    10.100.0.10
+Address 1: 10.100.0.10 kube-dns.kube-system.svc.cluster.local
+
+Name:      kubernetes.default
+Address 1: 10.100.0.1 kubernetes.default.svc.cluster.local
+```
+
+CoreDNS(`10.100.0.10`)가 정상 동작하고 클러스터 내부 DNS 해석이 완벽히 이루어졌다.
+
+---
+
+### SQS + EventBridge 파이프라인 확인
+
+```bash
+aws events list-rules \
+  --name-prefix <prefix>-karpenter \
+  --region ap-northeast-2 \
+  --query 'Rules[*].{Name:Name,State:State}'
+```
+
+```json
+[
+    {"Name": "<prefix>-karpenter-instance-rebalance",  "State": "ENABLED"},
+    {"Name": "<prefix>-karpenter-instance-state",      "State": "ENABLED"},
+    {"Name": "<prefix>-karpenter-scheduled-change",    "State": "ENABLED"},
+    {"Name": "<prefix>-karpenter-spot-interruption",   "State": "ENABLED"}
+]
+```
+
+4개 Rule 모두 ENABLED 상태이며 동일한 SQS ARN으로 정상 연결되어 있다.
+
+> 실제 Spot 인터럽션 E2E 테스트는 AWS FIS(Fault Injection Simulator)로 별도 진행할 예정이다.
+{: .prompt-info }
+
+---
+
+### 최종 검증 결과
+
+| 항목 | 방법 | 결과 |
+|---|---|---|
+| Pod Identity Association 등록 | `aws eks list-pod-identity-associations` | ✅ |
+| Pod Identity 자격증명 주입 | `kubectl describe pod` 환경변수 확인 | ✅ |
+| Karpenter AWS API 정상 호출 | 로그 ERROR 없음, SSM 조회 INFO 확인 | ✅ |
+| 노드 자동 프로비저닝 | 테스트 파드 → 새 노드 31초 내 생성 | ✅ |
+| NodeClaim READY | `kubectl get nodeclaims` | ✅ |
+| Consolidation | 파드 삭제 후 30초 내 노드 자동 제거 | ✅ |
+| CoreDNS DNS 해석 | `nslookup kubernetes.default` | ✅ |
+| VPC CNI Pod IP 할당 | 파드 IP가 VPC 대역 내 정상 할당 | ✅ |
+| SQS 큐 생성 | `aws sqs get-queue-url` | ✅ |
+| EventBridge Rule 4개 ENABLED | `aws events list-rules` | ✅ |
+| EventBridge → SQS 연결 (4개) | `aws events list-targets-by-rule` | ✅ |
+
+---
+
+## 14. 트러블슈팅: IAM 권한 부족으로 인한 403 에러
+
+### 문제
+
+Karpenter가 노드를 성공적으로 프로비저닝했음에도 불구하고 로그에서 지속적으로 403 에러가 발생했다.
+
+```json
+{
+  "level": "ERROR",
+  "controller": "nodeclaim.tagging",
+  "error": "operation error EC2: CreateTags, StatusCode: 403,
+    api error UnauthorizedOperation: not authorized to perform: ec2:CreateTags"
+}
+{
+  "level": "ERROR",
+  "error": "operation error EC2: DeleteLaunchTemplate, StatusCode: 403,
+    api error UnauthorizedOperation: not authorized to perform: ec2:DeleteLaunchTemplate"
+}
+```
+
+### 원인 분석
+
+초기 IAM Policy 설계 시 `ec2:CreateTags`와 `ec2:DeleteLaunchTemplate` 권한이 누락됐다.
+
+| 액션 | 목적 |
+|---|---|
+| `ec2:CreateTags` | 생성된 EC2 인스턴스에 Karpenter 관리 태그를 붙임 |
+| `ec2:DeleteLaunchTemplate` | 노드 프로비저닝에 임시로 사용한 Launch Template을 정리 |
+
+### 해결
+
+```hcl
+{
+  Effect   = "Allow"
+  Action   = ["ec2:CreateTags"]
+  Resource = "*"
+},
+{
+  Effect   = "Allow"
+  Action   = ["ec2:DeleteLaunchTemplate"]
+  Resource = "*"
+  Condition = {
+    StringEquals = {
+      "aws:ResourceTag/kubernetes.io/cluster/${local.cluster_name}" = "owned"
+    }
+  }
+}
+```
+
+> **`ec2:CreateTags`에 조건을 걸 수 없는 이유**<br>
+> Karpenter가 태그 없는 기존 인스턴스에 태그를 붙이는 동작이라 `RequestTag` 조건을 걸 수가 없다.<br>
+> `ec2:DeleteLaunchTemplate`은 `ResourceTag` 조건으로 Karpenter가 만든 Launch Template만 삭제할 수 있도록 제한했다.
+{: .prompt-warning }
+
+> IAM 정책을 변경해도 실행 중인 파드는 캐싱된 자격증명을 계속 사용한다. 파드를 재시작해야 새 권한이 적용된다.
+{: .prompt-danger }
+
+```bash
+kubectl rollout restart deployment/karpenter -n karpenter
+kubectl rollout status deployment/karpenter -n karpenter
+```
+
+---
+
+## 15. 다음 단계
 
 > 1. **AWS Load Balancer Controller** — ALB 기반 Ingress, path 라우팅 (`/` → web, `/api/*` → was)<br>
-> 2. **External Secrets Operator** — Secrets Manager 연동 (IRSA)<br>
+> 2. **External Secrets Operator** — Secrets Manager 연동<br>
 > 3. **ArgoCD** — GitOps CD 파이프라인<br>
 > 4. **GitHub Actions** — CI 파이프라인 (빌드, ECR 푸시, 매니페스트 업데이트)<br>
-> 5. **ECR 레포지토리** — web, was 이미지 저장소
+> 5. **AWS FIS** — Spot 인터럽션 E2E 테스트 (추후)
 {: .prompt-info }
