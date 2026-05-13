@@ -1,7 +1,7 @@
 ---
-title: "Legacy PHP E-Commerce: From Docker Containerization to EKS Migration"
+title: "Infrastructure configuration and application packaging"
 date: 2026-05-07 00:00:00 +0900
-categories: [Kubernetes, EKS Migration Project]
+categories: [Kubernetes, Legacy PHP eCommerce: EKS Migration]
 tags: [docker, php-fpm, apache, tomcat, aws, eks, argocd, opentofu, gitops, aurora, elasticache, karpenter]
 mermaid: true
 ---
