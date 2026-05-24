@@ -4,7 +4,7 @@ icon: fas fa-info-circle
 order: 4
 ---
 
-## 👋 Undefined Engineer, Sunghwan Heo
+## 👋 Undefined Engineer, SungHwan Heo
 
 > 무언가에 얽매이지 않고, 클라우드로 시작해서 모든 인프라를 습득하길 갈망하는 욕심많은 엔지니어입니다.<br>
 > 현재 외국계 기업에서 **IT Cloud Engineer** 직무를 맡고 있으며, AWS · Azure 벤더 중심으로 운영하고 있습니다.
@@ -39,7 +39,7 @@ order: 4
 
 ## 💼 Experiences
 
-**클라우드 엔지니어** | 책임 | 2023.07 ~
+**Cloud Architecture & Security** | Manager | 2023.07 ~
 
 - Market Korea 내 AWS · Azure 클라우드 인프라 운영
   - eCommerce 플랫폼 인프라 운영 및 보안 강화
@@ -48,7 +48,7 @@ order: 4
   - AWS Legacy Infra → EKS 마이그레이션 프로젝트 책임
 - Global Organization Compliance를 준수한 Kubernetes 내부 설계
 
-**네트워크 엔지니어** | 팀원 | 2021.06 ~ 2023.07
+**Network Engineer** | 팀원 | 2021.06 ~ 2023.07
 
 - Cisco 벤더사의 L2 Switching, L3 Routing, Wireless 구축 및 운용
 - FortiGate, Axgate, Cisco ASA 등 방화벽을 활용한 IPSec VPN, SSL VPN 구축 및 Policy 운영
@@ -73,4 +73,4 @@ order: 4
 | **Infrastructure / Root Cause Analysis** | 실무 트러블슈팅, 장애 분석, 아키텍처 설계 기록 |
 | **Compliance & Vulnerability / ISMS-P** | ISMS-P 인증 대응, 보안 통제 항목 정리 |
 | **Compliance & Vulnerability / Application & Network** | 보안 아키텍처 설계 및 가이드 기록 |
-| **Kubernetes / EKS Migration Project** | Docker, EKS, CI/CD, GitOps 관련 실무 경험 |
+| **Kubernetes / Legacy PHP eCommerce - EKS Migration** | Docker, EKS, CI/CD, GitOps 관련 실무 경험 |
