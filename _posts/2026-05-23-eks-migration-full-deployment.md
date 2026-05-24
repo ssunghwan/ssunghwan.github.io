@@ -933,14 +933,20 @@ infra-repo/
 
 ### 기술 스택
 
-| 항목 | 선택 | 버전 |
-|---|---|---|
-| 프레임워크 | Next.js App Router | 14.2 |
-| DB 클라이언트 | mysql2/promise | 3.x |
-| 세션 | iron-session | 8.x |
-| 비밀번호 | bcryptjs | 2.x |
-| 스타일링 | Tailwind CSS | 3.x |
-| 빌드 출력 | standalone | - |
+| 항목 | 선택 | 버전 | 선택 이유 |
+|---|---|---|---|
+| 프레임워크 | Next.js App Router | 14.2 | Server Component로 DB 직접 조회, BFF 패턴 구현 용이 |
+| DB 클라이언트 | mysql2/promise | 3.x | Promise 기반 비동기 처리, 커넥션 풀 지원 |
+| 세션 | iron-session | 8.x | 서버사이드 세션, AES 암호화 쿠키 기반으로 별도 세션 스토리지 불필요 |
+| 비밀번호 | bcryptjs | 2.x | 기존 PHP `password_hash()` 결과와 호환 (`$2y$` → `$2b$` 정규화) |
+| 스타일링 | Tailwind CSS | 3.x | 별도 CSS 파일 없이 빠른 UI 구성 |
+| 빌드 출력 | standalone | - | 필요한 파일만 포함해 이미지 크기 최소화 |
+
+> **Next.js App Router를 선택한 이유**<br>
+> Pages Router 대신 App Router를 선택한 핵심 이유는 **Server Component** 다.<br>
+> 상품 목록, 카테고리 등 데이터 조회를 서버에서 직접 처리하므로 별도 API 레이어 없이 DB에서 데이터를 가져와 렌더링할 수 있다.<br>
+> 클라이언트로 전달되는 JS 번들 크기가 줄어들고, 초기 로딩 속도도 빨라진다.
+{: .prompt-tip }
 
 ### 디렉토리 구조
 
@@ -980,6 +986,12 @@ applications/purina-nextjs/
 ```
 
 ### DB 커넥션 풀
+
+> **커넥션 풀을 사용하는 이유**<br>
+> Next.js Server Component는 요청마다 실행된다. 매 요청마다 DB 연결을 새로 맺으면 핸드쉐이크 오버헤드가 발생하고 RDS의 최대 연결 수를 초과할 수 있다.<br>
+> `createPool`을 모듈 레벨에서 한 번만 생성하면 연결을 재사용해 오버헤드를 줄인다.<br>
+> `connectionLimit: 10`은 Pod당 최대 10개 연결을 의미한다. 2 replicas면 RDS에 최대 20개 연결이 맺힌다.
+{: .prompt-info }
 
 ```typescript
 const pool = mysql.createPool({
@@ -1033,7 +1045,11 @@ else {
 
 ### 헬스체크 API
 
-K8s Readiness/Liveness Probe 겸용. DB SELECT 1로 연결 상태 포함.
+> **Readiness와 Liveness를 동일 엔드포인트로 구성한 이유**<br>
+> Readiness Probe는 파드가 트래픽을 받을 준비가 됐는지, Liveness Probe는 파드가 살아있는지 확인한다.<br>
+> `/api/health`에서 DB `SELECT 1`을 실행해 DB 연결까지 포함한 상태를 체크한다.<br>
+> DB 연결이 끊긴 상태에서 트래픽을 받으면 모든 요청이 500이 되므로, DB 연결 실패 시 503을 반환해 ALB가 해당 파드를 타겟에서 제외하도록 했다.
+{: .prompt-info }
 
 ```typescript
 export async function GET() {
@@ -1047,6 +1063,20 @@ export async function GET() {
 ```
 
 ### Dockerfile (멀티스테이지)
+
+> **멀티스테이지 빌드를 구성한 이유**<br>
+> Next.js는 빌드 시 TypeScript 컴파일, 번들링 등 많은 도구가 필요하다. 하지만 실제 런타임에는 빌드 결과물만 필요하다.<br>
+> 멀티스테이지로 구성하면 빌드 도구(`devDependencies`, TypeScript 등)가 최종 이미지에 포함되지 않아 이미지 크기를 크게 줄일 수 있다.
+>
+> - `deps`: `node_modules` 설치만 담당. `npm ci`로 lock 파일 기반 정확한 버전 설치
+> - `builder`: 소스 복사 후 `next build` 실행. `NEXT_TELEMETRY_DISABLED=1`로 빌드 중 텔레메트리 전송 차단
+> - `runner`: 빌드 결과물(`standalone`, `static`)만 복사. non-root 유저(`nextjs`)로 실행
+{: .prompt-info }
+
+> **`output: "standalone"` 을 사용하는 이유**<br>
+> 일반 Next.js 빌드는 `node_modules` 전체가 런타임에 필요하다. `standalone` 모드는 실제로 필요한 파일만 추려서 `server.js` 하나로 실행 가능한 형태로 만든다.<br>
+> 이미지 크기가 일반 빌드 대비 60~70% 수준으로 줄어들어 ECR 저장 비용과 배포 시간이 감소한다.
+{: .prompt-tip }
 
 ```dockerfile
 FROM node:20-alpine AS base
@@ -1080,6 +1110,12 @@ CMD ["node", "server.js"]
 ```
 
 ### next.config.mjs
+
+> **`serverComponentsExternalPackages`에 mysql2, bcryptjs를 추가한 이유**<br>
+> `mysql2`는 C++ native addon을 사용하고, `bcryptjs`는 native binding이 있다.<br>
+> Next.js 번들러(webpack/turbopack)가 이런 패키지를 번들링하려 하면 native addon 처리 과정에서 오류가 발생한다.<br>
+> `serverComponentsExternalPackages`에 추가하면 번들링 대상에서 제외되어 Node.js가 직접 `require()`로 로드한다.
+{: .prompt-warning }
 
 ```javascript
 const nextConfig = {
@@ -1123,6 +1159,12 @@ export default nextConfig;
 
 ### Dockerfile (단일스테이지)
 
+> **Next.js와 달리 단일스테이지 빌드를 사용한 이유**<br>
+> purina-api는 순수 Node.js Express 서버다. TypeScript 컴파일이나 번들링 과정이 없어 빌드 스테이지가 필요 없다.<br>
+> `npm ci --only=production`으로 `devDependencies`를 제외하면 이미지 크기를 최소화할 수 있다.<br>
+> 빌드 복잡도가 낮은 서비스는 단일스테이지가 오히려 더 명확하고 유지보수하기 쉽다.
+{: .prompt-info }
+
 ```dockerfile
 FROM node:20-alpine
 WORKDIR /app
@@ -1137,7 +1179,12 @@ CMD ["node", "src/app.js"]
 
 ### Next.js → purina-api 통신
 
-Next.js Server Component에서 K8s 내부 DNS로 호출.
+> **K8s 내부 DNS 서비스 디스커버리**<br>
+> `PURINA_API_URL=http://<api-service-name>:8080`으로 설정하면 K8s가 내부 DNS를 통해 ClusterIP Service를 찾아준다.<br>
+> Next.js Server Component는 서버에서 실행되므로 클러스터 내부에서 직접 API를 호출할 수 있다.<br>
+> 외부 인터넷을 거치지 않고 클러스터 내부에서 통신하므로 레이턴시가 낮고 보안적으로도 안전하다.<br>
+> `revalidate: 0`은 Next.js의 fetch 캐싱을 비활성화해 항상 최신 데이터를 가져오도록 설정한 것이다.
+{: .prompt-tip }
 
 ```typescript
 // src/lib/apiClient.ts
