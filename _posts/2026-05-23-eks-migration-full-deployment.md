@@ -131,6 +131,12 @@ COPY docker/php-fpm/www.conf /etc/php/7.4/fpm/pool.d/www.conf
 USER www-data
 ```
 
+> **멀티스테이지 빌드를 쓰지 않은 이유**<br>
+> PHP-FPM은 런타임에 소스코드 전체가 필요하다. Node.js처럼 빌드 아티팩트만 복사하는 패턴이 적용되지 않는다.<br>
+> 대신 `--no-dev`로 개발 의존성을 제외하고 `.dockerignore`로 불필요한 파일을 제거해 이미지 크기를 줄였다.<br>
+> `composer install` 전 `vendor/` 제외 덕분에 빌드 컨텍스트는 약 50MB, 최종 이미지는 약 400MB 수준이다.
+{: .prompt-info }
+
 ### .dockerignore
 
 ```
@@ -184,6 +190,18 @@ access.log = /proc/self/fd/2
 > **`opcache.memory_consumption`**: PHP_INI_SYSTEM 설정이라 `php_value`로 설정 불가. Dockerfile에서 ini 파일로 직접 주입해야 한다.
 {: .prompt-danger }
 
+**`pm = dynamic`을 선택한 이유**
+
+PHP-FPM의 프로세스 관리 방식은 세 가지다.
+
+| 방식 | 동작 | 적합한 환경 |
+|---|---|---|
+| `static` | 항상 `pm.max_children`개 유지 | 트래픽이 일정하고 예측 가능한 경우 |
+| `dynamic` | 최소/최대 사이에서 동적 조정 | 일반적인 웹 서비스 (권장) |
+| `ondemand` | 요청 시에만 프로세스 생성 | 트래픽이 매우 적거나 간헐적인 경우 |
+
+`dynamic`은 `pm.start_servers`로 초기 프로세스를 미리 띄워두고, 트래픽에 따라 `pm.min_spare_servers` ~ `pm.max_spare_servers` 사이에서 자동 조정한다. EKS에서는 HPA가 Pod 수를 조정하므로, 프로세스당 트래픽이 일정하게 유지되어 `dynamic`이 적합하다.
+
 ### nginx.conf
 
 ```nginx
@@ -227,7 +245,21 @@ http {
 }
 ```
 
+> **Non-root 유저(`USER nginx`)로 실행하는 이유**<br>
+> 컨테이너를 root로 실행하면 컨테이너 탈출 취약점 발생 시 호스트에 대한 권한을 가질 수 있다.<br>
+> `USER nginx`로 non-root 유저를 지정하면 프로세스 권한을 최소화할 수 있다.<br>
+> 단, nginx는 기본적으로 `/var/cache/nginx`, `/var/run/nginx.pid` 등에 쓰기 권한이 필요한데 non-root 유저는 이 경로에 접근할 수 없다.<br>
+> 따라서 모든 임시 파일 경로를 `/tmp`로 변경했다.
+{: .prompt-warning }
+
 ### default.conf
+
+> **헬스체크 경로를 `/elb.php`로 분리한 이유**<br>
+> ALB 헬스체크가 `/`를 타면 PHP 앱 전체 로직(DB 연결, 세션, include 체인)이 실행된다.<br>
+> 이 과정에서 500이 발생하면 정상 파드도 Unhealthy로 처리되어 트래픽을 받지 못한다.<br>
+> `/elb.php`는 아무 로직도 없는 빈 파일이라 즉시 200을 반환한다.<br>
+> 헬스체크와 실제 서비스 로직을 분리하는 것은 이커머스처럼 복잡한 앱에서 필수적인 패턴이다.
+{: .prompt-tip }
 
 ```nginx
 server {
@@ -333,6 +365,39 @@ docker push <account-id>.dkr.ecr.ap-northeast-2.amazonaws.com/app-tomcat:latest
 ---
 
 ## 5. K8s 매니페스트 작성 (PHP 버전)
+
+### initContainer + emptyDir 패턴을 선택한 이유
+
+EKS에서 Sidecar 패턴으로 nginx + php-fpm을 같은 Pod에 올릴 때 핵심 문제가 있다. **nginx는 정적 파일을 직접 서빙하고 php-fpm은 PHP를 실행해야 하는데, 두 컨테이너가 동일한 소스코드에 접근해야 한다.**
+
+로컬 docker-compose에서는 bind mount로 간단히 해결했지만 EKS에서는 불가능하다. 대안을 비교하면 다음과 같다.
+
+| 방식 | 방법 | 단점 |
+|---|---|---|
+| 두 이미지에 소스 포함 | nginx 이미지, php 이미지 각각에 COPY | 소스 변경 시 두 이미지 모두 빌드 필요, 불일치 위험 |
+| EFS 마운트 | PVC로 소스 공유 | EFS 의존성 추가, 레이턴시 발생 |
+| **initContainer + emptyDir** | php 이미지에서 소스 복사 후 volume 공유 | **단일 이미지 빌드, 빠른 로컬 스토리지** ✅ |
+
+`initContainer`는 메인 컨테이너 시작 전에 실행되고 종료되는 특수 컨테이너다. php 이미지에서 소스를 `emptyDir` volume으로 복사하면, nginx와 php-fpm이 동일한 volume을 마운트해 소스를 공유할 수 있다. 이미지는 php 하나만 빌드하면 되므로 소스 불일치 문제도 없다.
+
+> **emptyDir volume을 두 개로 분리한 이유**<br>
+> `php-socket`: nginx ↔ php-fpm 간 Unix socket 파일 공유 전용<br>
+> `app-source`: 소스코드 공유 전용. initContainer가 복사한 전체 소스가 여기에 있다.<br>
+> 두 volume을 분리해야 소켓 파일과 소스코드가 뒤섞이지 않고, 각 컨테이너가 필요한 경로에만 마운트할 수 있다.
+{: .prompt-info }
+
+> **`terminationGracePeriodSeconds: 60`을 설정한 이유**<br>
+> Pod가 종료될 때 Kubernetes는 먼저 `preStop` 훅을 실행하고 `SIGTERM`을 보낸 뒤, 이 시간 안에 프로세스가 종료되지 않으면 `SIGKILL`로 강제 종료한다.<br>
+> nginx는 `preStop`에서 `nginx -s quit`으로 현재 처리 중인 요청을 완료한 후 종료한다.<br>
+> php-fpm도 처리 중인 요청이 있을 수 있으므로 충분한 유예 시간(60초)을 주어 응답 중단 없이 안전하게 종료되도록 했다.
+{: .prompt-warning }
+
+> **php-fpm Probe를 `exec`으로 구성한 이유**<br>
+> nginx는 HTTP 엔드포인트(`/nginx-health`)가 있어 `httpGet`으로 Probe를 구성할 수 있다.<br>
+> 반면 php-fpm은 FastCGI 프로토콜로 통신하므로 HTTP Probe를 직접 걸 수 없다.<br>
+> 대신 Unix socket 파일(`/run/php/php7.2-fpm.sock`)의 존재 여부를 확인하는 방식을 사용했다.<br>
+> socket 파일이 존재한다는 것은 php-fpm이 정상적으로 실행 중이며 요청을 받을 준비가 됐다는 의미다.
+{: .prompt-info }
 
 ```yaml
 apiVersion: apps/v1
