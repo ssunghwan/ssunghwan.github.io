@@ -1,11 +1,11 @@
 ---
-title: "Legacy PHP E-Commerce: EKS Migration — Building a GitHub Actions + ArgoCD GitOps CI/CD Pipeline"
+title: "Building a GitHub Actions + ArgoCD GitOps CI/CD Pipeline"
 date: 2026-05-27 09:00:00 +0900
 categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
 tags: [eks, argocd, gitops, github-actions, cicd, alb, karpenter, hpa, oidc, dex, oauth]
 ---
 
-> EKS 마이그레이션 시리즈 여 번째 포스팅이다.<br>
+> EKS 마이그레이션 시리즈 여섯 번째 포스팅이다.<br>
 > 앞선 포스팅에서 Next.js 샘플 애플리케이션을 EKS에 수동 배포하는 것까지 완료했다. 이번에는 코드 변경이 자동으로 배포되는 완전한 CI/CD 파이프라인을 구축한다.<br>
 > GitHub Actions로 이미지를 빌드해 ECR에 푸시하고, ArgoCD가 Git 변경을 감지해 EKS에 자동 배포한다. 여기에 HPA, Karpenter 연동, ALB Ingress Group, GitHub OAuth까지 실제 현장에서 겪은 트러블슈팅을 그대로 담았다.
 {: .prompt-info }
@@ -844,7 +844,9 @@ kubectl get hpa -n <app-namespace>
 
 트러블슈팅 과정에서 가장 많은 시간을 소비한 부분은 Karpenter와 `podAntiAffinity`의 충돌이었다. **Karpenter 환경에서는 `topologySpreadConstraints`가 표준**이라는 점, 그리고 `ScheduleAnyway`와 `DoNotSchedule`의 차이를 명확히 이해하고 상황에 맞게 선택하는 것이 중요하다.
 
-> **EKS 마이그레이션 시리즈 완료**<br>
+아직 개발 환경에서의 테스팅 이므로 GitHub의 OAuth를 사용하는 것으로 구성하였는데, 실제 프로덕션 환경에서는 Azure AD 기반의 인증 방식 등, 사내 컴플라이언스를 준수하여 구축하는 것을 권장한다.
+
+> **EKS 마이그레이션 시리즈 진행사항**<br>
 > 1편: 레거시 PHP 앱 컨테이너화 + To-Be 아키텍처 설계<br>
 > 2편: Terraform VPC/EKS/Karpenter 구성<br>
 > 3편: Karpenter 구성 검증 + Pod Identity<br>
