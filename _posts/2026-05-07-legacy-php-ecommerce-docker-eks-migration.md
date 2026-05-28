@@ -937,14 +937,15 @@ aws sso login --profile your-sso-profile
 
 **앞으로 구성할 것**
 
-> - OpenTofu + Terragrunt로 EKS 인프라 코드화<br>
-> - ArgoCD를 EKS Pod로 배포, GitOps 파이프라인 완성<br>
+> - Terraform으로 VPC/EKS/Karpenter 인프라 코드화<br>
+> - ArgoCD를 EKS Pod로 배포, GitOps 파이프라인 구성<br>
 > - Tofu Controller 도입으로 인프라 변경도 Git 푸시만으로 자동화 (검토 중)<br>
 > - Aurora MySQL Serverless v2 마이그레이션<br>
 > - ElastiCache Redis 도입 (세션 스토리지, 캐싱)<br>
 > - External Secrets Operator로 Secrets Manager 자동 동기화<br>
 > - Karpenter로 워크로드 기반 노드 자동 프로비저닝<br>
-> - Checkmarx + Trivy 보안 스캔 파이프라인 통합
+> - Checkmarx + Trivy 보안 스캔 파이프라인 통합<br>
+> - PLG 모니터링 스택 (Prometheus + Loki + Grafana)
 {: .prompt-info }
 
 레거시 코드와 현대적인 인프라 사이의 간극을 메우는 과정을 계속 기록할 예정이다.
