@@ -5,7 +5,7 @@ categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
 tags: [eks, prometheus, loki, grafana, promtail, plg, monitoring, karpenter, irsa, s3, ebs-csi]
 ---
 
-> EKS 마이그레이션 시리즈 일 번째 포스팅이다.<br>
+> EKS 마이그레이션 시리즈 일곱 번째 포스팅이다.<br>
 > 앞선 포스팅에서 GitHub Actions + ArgoCD GitOps CI/CD 파이프라인을 완성했다. 이번에는 클러스터와 애플리케이션의 상태를 한눈에 파악할 수 있는 모니터링 스택을 구축한다.<br>
 > ELK 대신 PLG(Promtail + Loki + Grafana)를 선택한 이유부터, EBS CSI Driver 설치, S3 백엔드 구성, GitHub OAuth SSO 연동까지 실제 현장에서 겪은 트러블슈팅을 그대로 담았다.
 {: .prompt-info }
