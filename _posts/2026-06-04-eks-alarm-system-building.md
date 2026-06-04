@@ -29,8 +29,8 @@ tags: [eks, prometheus, alertmanager, slack, loki, promtail, karpenter, hpa, ext
 ```
 [Karpenter Nodes]
   ├── system nodes → Prometheus, AlertManager, Grafana, Loki
-  ├── web nodes    → purina-nextjs Pod
-  └── api nodes    → purina-api Pod
+  ├── web nodes    → nextjs Pod
+  └── api nodes    → api Pod
 
 [메트릭 수집]
   Prometheus ─── kube-state-metrics (Pod/Node/HPA 상태)
