@@ -1,7 +1,7 @@
 ---
 title: "From containerizing a test Next.js app to MSA separation"
 date: 2026-05-23 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Legacy PHP eCommerce – Migration to Java]
 tags: [eks, docker, php-fpm, nginx, tomcat, nextjs, nodejs, karpenter, external-secrets, external-dns, acm, rds, route53, terraform, msa]
 ---
 
