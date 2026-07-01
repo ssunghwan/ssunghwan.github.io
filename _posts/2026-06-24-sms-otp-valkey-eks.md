@@ -1,7 +1,7 @@
 ---
-title: "EKS에서 SMS OTP 인증 구현하기 — Solapi + Valkey(Redis) 분산 저장 통합"
+title: "Implementing SMS OTP Authentication on EKS — Integrating Valkey (Redis) for Processing and Storage"
 date: 2026-06-24 09:00:00 +0900
-categories: [Infrastructure, DevOps]
+categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
 tags: [eks, redis, valkey, solapi, sms, otp, elasticache, sentinel, ioredis, kubernetes, argocd]
 ---
 
@@ -84,6 +84,7 @@ Sandbox 등록 및 `PublishCommand` 호출까지는 성공했으나 실제 문�
 ### Solapi를 선택한 이유
 
 국내 SMS 전문 사업자인 Solapi는 EKS NAT Gateway를 통해 외부로 나가는 **HTTPS API 방식**이므로 VPN 차단 영향을 받지 않는다.
+임시 api 테스팅을 위해 Solapi를 사용하고, 추 후에는 당사의 써드파티 업체를 활용할 예정이다.
 
 **사전 설정:**
 - 발신번호 등록 (사전 심사 완료)
