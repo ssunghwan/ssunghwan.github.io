@@ -1,13 +1,14 @@
 ---
-title: "Installing ALBC, ESO, and ArgoCD components for configuring GitOps pipelines"
+title: "ALBC, ESO, and ArgoCD GitOps pipeline configuration and Pod Identity migration"
 date: 2026-05-20 09:00:00 +0900
 categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
-tags: [aws, eks, albc, argocd, external-secrets, gitops, kubernetes, helm, irsa, eso]
+tags: [aws, eks, albc, argocd, external-secrets, gitops, kubernetes, helm, irsa, eso, pod-identity]
 ---
 
-> EKS 마이그레이션 시리즈 네 번째 포스팅이다.<br>
+> EKS 마이그레이션 시리즈 다섯 번째 포스팅이다.<br>
 > 앞선 포스팅에서 EKS 클러스터, Karpenter, VSCode Server까지 구성했다. 이번에는 실제 GitOps 파이프라인을 구성하기 위한 핵심 컴포넌트들을 설치한다.<br>
-> AWS Load Balancer Controller로 ALB를 자동 생성하고, External Secrets Operator로 Secrets Manager 연동을 구성했으며, ArgoCD로 GitOps CD 기반을 마련했다.
+> AWS Load Balancer Controller로 ALB를 자동 생성하고, External Secrets Operator로 Secrets Manager 연동을 구성했으며, ArgoCD로 GitOps CD 기반을 마련했다.<br>
+> 또한 초기 구성에서 사용한 **IRSA(IAM Roles for Service Accounts)** 방식을 AWS 권장 최신 방식인 **EKS Pod Identity**로 전환한 과정도 함께 다룬다.
 {: .prompt-info }
 
 ---
@@ -604,10 +605,345 @@ no matches for kind "ClusterSecretStore" in version "external-secrets.io/v1beta1
 
 ---
 
-## 8. 다음 단계
+## 8. IRSA → EKS Pod Identity 전환 (2026-06-09)
+
+초기 구성에서는 ALBC, ESO 등 모든 컴포넌트의 IAM 인증을 **IRSA** 방식으로 구성했다. 이후 클러스터 운영이 안정화된 시점에 AWS 권장 최신 방식인 **EKS Pod Identity**로 전체 전환 작업을 진행했다.
+
+### IRSA vs Pod Identity
+
+IRSA는 EKS OIDC Federation을 통해 ServiceAccount에 `eks.amazonaws.com/role-arn` 어노테이션을 설정하고, Pod이 STS `AssumeRoleWithWebIdentity` API를 직접 호출해 임시 자격증명을 발급받는 방식이다.
+
+**EKS Pod Identity**는 AWS가 2023년 말 출시한 개선된 방식으로, OIDC Provider 설정 없이 EKS 클러스터 레벨에서 직접 SA-Role 매핑을 관리한다.
+
+| 항목 | IRSA | Pod Identity |
+|---|---|---|
+| OIDC Provider 설정 | 필요 (클러스터당 생성) | 불필요 |
+| Trust Policy | OIDC Federated 조건부 | `pods.eks.amazonaws.com` 단순화 |
+| SA 어노테이션 | 필수 (`eks.amazonaws.com/role-arn`) | 불필요 |
+| 역할 재사용 | 클러스터당 별도 역할 필요 | 여러 클러스터 공유 가능 |
+| 자격증명 주입 | OIDC 토큰 → STS 직접 호출 | Pod Identity Agent가 대신 처리 |
+
+> **왜 지금 전환하는가?**<br>
+> 이미 Karpenter는 Pod Identity로 운영 중이었고, 클러스터에 `eks-pod-identity-agent` 애드온도 설치되어 있었다.<br>
+> IRSA와 Pod Identity가 혼재하는 상태는 유지보수 관점에서 일관성이 없다. Trust Policy 형식이 달라 신규 컴포넌트 추가 시 혼란이 생기고, OIDC Federation 의존성을 제거할 수 있다는 장점도 있어 전면 전환을 결정했다.
+{: .prompt-info }
+
+---
+
+### 마이그레이션 대상
+
+**전환 대상 (IRSA → Pod Identity)**
+
+| 컴포넌트 | 네임스페이스 | ServiceAccount |
+|---|---|---|
+| EBS CSI Driver | `kube-system` | `ebs-csi-controller-sa` |
+| AWS Load Balancer Controller | `kube-system` | `aws-load-balancer-controller` |
+| External Secrets Operator | `external-secrets` | `external-secrets` |
+| External DNS | `external-dns` | `external-dns` |
+| Loki | `monitoring` | `loki` |
+| Karpenter | `karpenter` | `karpenter` |
+
+**전환 제외**
+
+| 컴포넌트 | 이유 |
+|---|---|
+| GitHub Actions | GitHub OIDC(`token.actions.githubusercontent.com`) — EKS IRSA와 별개 메커니즘 |
+
+---
+
+### IAM Role Trust Policy 변경
+
+모든 대상 역할의 Trust Policy를 아래와 같이 변경했다.
+
+```json
+// 변경 전 (IRSA) — OIDC Federated 조건부, 클러스터 ID 하드코딩
+{
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Federated": "arn:aws:iam::<account-id>:oidc-provider/oidc.eks.ap-northeast-2.amazonaws.com/id/<oidc-id>"
+    },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "oidc.eks.../<oidc-id>:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa",
+        "oidc.eks.../<oidc-id>:aud": "sts.amazonaws.com"
+      }
+    }
+  }]
+}
+```
+
+```json
+// 변경 후 (Pod Identity) — 단순하고 클러스터 독립적
+{
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "Service": "pods.eks.amazonaws.com"
+    },
+    "Action": ["sts:AssumeRole", "sts:TagSession"]
+  }]
+}
+```
+
+> **Trust Policy가 단순해지는 이유**<br>
+> IRSA는 "어떤 클러스터의 어떤 SA"인지를 Trust Policy 조건으로 제한한다. 그래서 클러스터 OIDC ID가 Trust Policy에 하드코딩된다.<br>
+> Pod Identity는 Trust Policy에서 클러스터/SA 제한을 하지 않고, `aws_eks_pod_identity_association` 리소스가 "어떤 클러스터의 어떤 네임스페이스의 어떤 SA"를 제어한다. 역할 자체는 범용적으로 유지된다.
+{: .prompt-info }
+
+---
+
+### Pod Identity Association 생성
+
+각 컴포넌트마다 `aws_eks_pod_identity_association` 리소스를 추가했다. 이 리소스가 EKS 클러스터에 SA↔Role 매핑을 등록한다.
+
+```hcl
+# 예시: EBS CSI
+resource "aws_eks_pod_identity_association" "ebs_csi" {
+  cluster_name    = aws_eks_cluster.this.name
+  namespace       = "kube-system"
+  service_account = "ebs-csi-controller-sa"
+  role_arn        = aws_iam_role.ebs_csi.arn
+}
+
+# ALBC
+resource "aws_eks_pod_identity_association" "albc" {
+  cluster_name    = var.cluster_name
+  namespace       = "kube-system"
+  service_account = "aws-load-balancer-controller"
+  role_arn        = aws_iam_role.albc.arn
+}
+
+# ESO
+resource "aws_eks_pod_identity_association" "eso" {
+  cluster_name    = var.cluster_name
+  namespace       = "external-secrets"
+  service_account = "external-secrets"
+  role_arn        = aws_iam_role.eso.arn
+}
+```
+
+---
+
+### 모듈 변수 정리
+
+IRSA 전용 변수를 제거하고 `cluster_name`으로 대체했다.
+
+```hcl
+# 변경 전 — OIDC 관련 변수 2개 필요
+variable "oidc_provider_arn" { type = string }
+variable "oidc_provider_url" { type = string }
+
+# 변경 후 — cluster_name 하나로 단순화
+variable "cluster_name" { type = string }
+```
+
+`dev/main.tf` 주요 변경 사항:
+
+- `module "albc"`, `module "eso"`, `module "external_dns"`: `oidc_provider_arn`, `oidc_provider_url` → `cluster_name`으로 교체
+- `kubernetes_annotations.external_dns_sa` 리소스 삭제: Pod Identity는 SA 어노테이션이 불필요
+- `Loki IAM Role`: Trust Policy 변경 + `aws_eks_pod_identity_association.loki` 추가
+
+---
+
+### Loki Helm values SA 어노테이션 제거
+
+```yaml
+# 변경 전 — IRSA: SA 어노테이션으로 Role ARN 지정
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<prefix>-loki-apne2-role
+
+# 변경 후 — Pod Identity: SA 어노테이션 불필요
+serviceAccount:
+  annotations: {}
+```
+
+---
+
+### terraform plan / apply
+
+```
+Plan: 5 to add, 7 to change, 1 to destroy.
+```
+
+| 구분 | 리소스 |
+|---|---|
+| **add (5)** | `aws_eks_pod_identity_association` × 5 (loki, albc, ebs_csi, eso, external_dns) |
+| **change (7)** | IAM Role Trust Policy × 5 + `helm_release.karpenter` + `aws_eks_addon.ebs_csi` |
+| **destroy (1)** | `kubernetes_annotations.external_dns_sa` |
+
+### apply 중 EBS CSI UpdateAddon 에러
+
+```
+Error: updating EKS Add-On:
+api error AccessDeniedException: Cross-account pass role is not allowed.
+```
+
+**원인**: EKS `UpdateAddon` API는 `service_account_role_arn` 변경(제거 포함) 시 내부적으로 `iam:PassRole`을 검증한다. VSCode 인스턴스 IAM Role에 해당 권한이 없어 403이 반환됐다.
+
+**조치**: `service_account_role_arn = aws_iam_role.ebs_csi.arn`을 Terraform config에 그대로 유지한다.
+
+> **IRSA와 Pod Identity는 공존 가능하다.**<br>
+> 동일 SA에 두 방식이 모두 설정되면 **Pod Identity Association이 우선 적용**된다.<br>
+> SA 어노테이션(`eks.amazonaws.com/role-arn`)은 사실상 dead code가 된다. 기능적으로는 전혀 문제없다.
+{: .prompt-tip }
+
+**EBS CSI 의존성 순서 보장**: addon이 Pod Identity Association보다 먼저 업데이트되는 race condition을 방지하기 위해 `depends_on`을 추가했다.
+
+```hcl
+resource "aws_eks_addon" "ebs_csi" {
+  ...
+  depends_on = [
+    aws_eks_node_group.sys_2a,
+    aws_eks_node_group.sys_2c,
+    aws_eks_pod_identity_association.ebs_csi,  # 추가 — race condition 방지
+  ]
+}
+```
+
+apply는 3회에 걸쳐 분산 적용했다.
+
+| 회차 | 결과 |
+|---|---|
+| 1차 | loki/ebs_csi 역할 + Association + `kubernetes_annotations` 삭제 완료, EBS CSI addon 에러 |
+| 2차 | EBS CSI addon 동일 에러 |
+| 3차 | config 수정 후 나머지 리소스 모두 적용 완료 |
+
+---
+
+### Pod 재시작
+
+Trust Policy가 변경됐으므로 기존 IRSA 자격증명을 사용하던 Pod들을 즉시 재시작해 Pod Identity 자격증명을 발급받도록 했다.
+
+```bash
+kubectl rollout restart deployment -n kube-system aws-load-balancer-controller
+kubectl rollout restart deployment -n external-secrets external-secrets
+kubectl rollout restart deployment -n external-dns external-dns
+kubectl rollout restart deployment -n monitoring loki-read
+kubectl rollout restart deployment -n kube-system ebs-csi-controller
+kubectl rollout restart statefulset -n monitoring loki-backend
+kubectl rollout restart statefulset -n monitoring loki-write
+```
+
+> **왜 재시작이 필요한가?**<br>
+> Pod Identity 자격증명은 Pod이 시작할 때 Pod Identity Agent가 주입한다. 기존 Pod는 이미 IRSA 자격증명을 받은 상태로 실행 중이므로, Trust Policy가 바뀌었다고 해서 자동으로 새 자격증명을 받지 않는다.<br>
+> `rollout restart`로 새 Pod를 생성하면 Pod Identity Agent가 새 Pod에 올바른 자격증명을 주입한다.
+{: .prompt-warning }
+
+---
+
+### ArgoCD sync 후 추가 이슈 — ClusterSecretStore auth.jwt 제거
+
+**문제**: ArgoCD에서 `external-secrets` 앱 Degraded 상태
+
+```
+failed to retrieve credentials, operation error STS: AssumeRoleWithWebIdentity,
+api error AccessDenied: Not authorized to perform sts:AssumeRoleWithWebIdentity
+```
+
+**원인**: `ClusterSecretStore`가 `auth.jwt` 블록(IRSA 방식)으로 Secrets Manager 인증을 하고 있었다. ESO 역할의 Trust Policy가 Pod Identity 전용으로 변경되면서 `AssumeRoleWithWebIdentity` 호출이 403으로 실패했다.
+
+```yaml
+# 변경 전 — auth.jwt: IRSA 방식으로 명시적 JWT 토큰 사용
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: ap-northeast-2
+      auth:
+        jwt:
+          serviceAccountRef:
+            name: external-secrets
+            namespace: external-secrets
+
+# 변경 후 — auth 블록 제거: SDK 기본 자격증명 체인 사용
+spec:
+  provider:
+    aws:
+      service: SecretsManager
+      region: ap-northeast-2
+```
+
+> **`auth` 블록을 제거하면 어떻게 동작하는가?**<br>
+> ESO가 AWS SDK 기본 자격증명 체인(Default Credential Chain)을 따른다.<br>
+> Pod Identity Agent가 주입한 환경변수(`AWS_CONTAINER_CREDENTIALS_FULL_URI` 등)를 SDK가 자동으로 감지해 자격증명을 가져온다.<br>
+> 명시적으로 `auth.jwt`를 지정하지 않아도 Pod Identity 자격증명이 자연스럽게 사용된다.
+{: .prompt-info }
+
+강제 sync 후 1시간 캐시 주기로 갱신되지 않은 ExternalSecret은 즉시 refresh했다.
+
+```bash
+kubectl annotate externalsecret argocd-github-oauth-secret -n argocd \
+  force-sync="$(date +%s)" --overwrite
+```
+
+---
+
+### 최종 상태 확인
+
+**Pod Identity Associations (6개)**
+
+| 컴포넌트 | Namespace | ServiceAccount |
+|---|---|---|
+| EBS CSI | `kube-system` | `ebs-csi-controller-sa` |
+| ALBC | `kube-system` | `aws-load-balancer-controller` |
+| ESO | `external-secrets` | `external-secrets` |
+| External DNS | `external-dns` | `external-dns` |
+| Loki | `monitoring` | `loki` |
+| Karpenter | `karpenter` | `karpenter` |
+
+**ExternalSecrets 동기화 상태**
+
+```
+NAMESPACE          NAME                          STATUS         READY
+argocd             argocd-github-oauth-secret    SecretSynced   True
+monitoring         alertmanager-slack-webhook    SecretSynced   True
+monitoring         grafana-admin-secret          SecretSynced   True
+monitoring         grafana-github-oauth-secret   SecretSynced   True
+<app-namespace>    cdn-secret                    SecretSynced   True
+<app-namespace>    mysql-secret                  SecretSynced   True
+<app-namespace>    nextjs-secret                 SecretSynced   True
+```
+
+---
+
+### 주의사항 및 참고
+
+**EBS CSI addon `service_account_role_arn` 잔존**
+
+현재 Terraform 상태에서 `aws_eks_addon.ebs_csi`의 `service_account_role_arn`은 제거되지 않고 유지되어 있다. EKS addon UpdateAddon API의 PassRole 권한 제한으로 Terraform으로는 제거가 불가능하다. 기능적으로는 문제없다(Pod Identity가 우선 적용). 향후 AWS Console/CLI를 통해 수동 제거 가능하다.
+
+```bash
+# 수동 제거 방법 (선택)
+aws eks update-addon \
+  --cluster-name <cluster-name> \
+  --addon-name aws-ebs-csi-driver \
+  --region ap-northeast-2
+```
+
+**OIDC Provider 유지**
+
+`aws_iam_openid_connect_provider` 리소스와 관련 output 값은 코드에 유지했다. GitHub Actions 등 다른 OIDC 기반 인증이 추가될 경우를 대비해 제거하지 않았다. 단순히 제거하면 불필요한 재생성 리스크가 생긴다.
+
+**신규 컴포넌트 추가 시 가이드**
+
+이후 새 컴포넌트를 추가할 때는 Pod Identity 방식으로 통일한다.
+
+```
+1. IAM Role Trust Policy에 pods.eks.amazonaws.com 허용
+2. aws_eks_pod_identity_association 리소스 추가 (namespace/SA/role_arn 지정)
+3. SA 어노테이션 불필요 — Helm values에 eks.amazonaws.com/role-arn 설정 금지
+4. ESO ClusterSecretStore처럼 auth 블록 없이 SDK ambient credentials 방식 사용
+```
+
+---
+
+## 9. 다음 단계
 
 > 1. **ArgoCD Internal ALB 구성** — Route53 Private Hosted Zone 연동<br>
 > 2. **애플리케이션 컨테이너화** — Dockerfile 작성<br>
-> 3. **GitHub Actions CI 구성** — Checkmarx SAST 연동<br>
+> 3. **GitHub Actions CI 구성** — ECR push 자동화<br>
 > 4. **ArgoCD Application 설정** — GitOps 배포 테스트
 {: .prompt-info }
