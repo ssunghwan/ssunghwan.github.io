@@ -1,8 +1,9 @@
 ---
-title: "Configuring ARC (Actions Runner Controller) on EKS — GitOps Operations for GitHub Actions Self-hosted Runners"
+title: "EKS에서 ARC(Actions Runner Controller) 구성하기 — GitHub Actions Self-hosted Runner GitOps 운영"
 date: 2026-06-25 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
 tags: [eks, arc, github-actions, self-hosted-runner, gitops, argocd, github-apps, kubernetes, pod-identity, terraform]
+mermaid: true
 ---
 
 > **환경**: AWS EKS / ARC v0.10.1 / ArgoCD v3.4.2<br>
@@ -95,46 +96,53 @@ Step 4. 배포 완료 검증 (ARC self-hosted runner ← 여기!)
 
 ## 3. 전체 아키텍처
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Terraform (관리 영역)                                          │
-│                                                                 │
-│  aws_ecr_repository.arc_runner                                  │
-│    └─ arc-runner (커스텀 이미지 — kubectl + aws cli 포함)       │
-│                                                                 │
-│  aws_secretsmanager_secret.arc_github_app       (Step 26-1)     │
-│    └─ <prefix>-arc-github-app-apne2-secret                      │
-│         github_app_id / installation_id / private_key           │
-│                                                                 │
-│  helm_release.arc_controller                    (Step 26-2)     │
-│    └─ arc-system namespace                                      │
-│         Deployment: arc-controller-gha-rs-controller            │
-│         CRD x4: AutoscalingRunnerSet, EphemeralRunner, 등       │
-│                                                                 │
-│  aws_iam_role.arc_runner + Pod Identity         (Step 26)       │
-│  aws_eks_access_entry.arc_runner (AmazonEKSViewPolicy)          │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph TF["🔧 Terraform (관리 영역)"]
+        direction TB
+        ECR["aws_ecr_repository\narc-runner\n(kubectl + aws cli 포함)"]
+        SECRET["aws_secretsmanager_secret\n&lt;prefix&gt;-arc-github-app-apne2-secret\ngithub_app_id / installation_id / private_key"]
+        CTRL["helm_release.arc_controller\narc-system namespace\nDeployment: arc-controller-gha-rs-controller\nCRD x4: AutoscalingRunnerSet, EphemeralRunner 등"]
+        IAM["aws_iam_role.arc_runner\n+ Pod Identity Association\n+ aws_eks_access_entry (AmazonEKSViewPolicy)"]
+    end
 
-┌─────────────────────────────────────────────────────────────────┐
-│  ArgoCD (관리 영역)                                             │
-│                                                                 │
-│  arc-manifests App  →  kubernetes/arc-runners/                  │
-│    └─ arc-runners namespace                                     │
-│         ServiceAccount: arc-runner                              │
-│                                                                 │
-│  arc-runner App     →  helm/arc-runner/values.yaml              │
-│    └─ arc-runners namespace                                     │
-│         AutoscalingRunnerSet: <prefix>-runner                   │
-│           minRunners: 0 / maxRunners: 3                         │
-└─────────────────────────────────────────────────────────────────┘
+    subgraph ARGO["🔁 ArgoCD (관리 영역)"]
+        direction TB
+        MANIFESTS["arc-manifests App\n→ kubernetes/arc-runners/\nServiceAccount: arc-runner"]
+        RUNNER["arc-runner App\n→ helm/arc-runner/values.yaml\nAutoscalingRunnerSet: &lt;prefix&gt;-runner\nminRunners: 0 / maxRunners: 3"]
+    end
 
-┌─────────────────────────────────────────────────────────────────┐
-│  ESO (External Secrets Operator)                                │
-│                                                                 │
-│  ExternalSecret: github-runner-secret (arc-runners namespace)   │
-│    └─ Secrets Manager → k8s Secret: github-runner-secret        │
-│         github_app_id, installation_id, private_key             │
-└─────────────────────────────────────────────────────────────────┘
+    subgraph ESO_BOX["🔐 ESO (External Secrets Operator)"]
+        direction LR
+        ES["ExternalSecret: github-runner-secret\narc-runners namespace"]
+        SM["AWS Secrets Manager\n→ K8s Secret: github-runner-secret\ngithub_app_id / installation_id / private_key"]
+        ES -->|"1h refresh"| SM
+    end
+
+    subgraph GH["☁️ GitHub"]
+        GHAPP["GitHub App\n(Actions + Administration)"]
+        BROKER["GitHub Broker API\n(Job Queue)"]
+    end
+
+    subgraph EKS["⚓ EKS Cluster"]
+        direction TB
+        CTRL_POD["arc-controller pod\n(arc-system)"]
+        LISTENER["listener pod\n(arc-system)"]
+        RUNNER_POD["runner pod\n(arc-runners)\nephemeral — job 완료 시 삭제"]
+    end
+
+    SECRET -->|"ESO 동기화"| ES
+    ECR -->|"이미지 pull"| RUNNER_POD
+    IAM -->|"Pod Identity"| RUNNER_POD
+    CTRL -->|"helm install"| CTRL_POD
+    MANIFESTS -->|"sync"| RUNNER_POD
+    RUNNER -->|"sync"| LISTENER
+
+    CTRL_POD -->|"AutoscalingRunnerSet 감시"| LISTENER
+    LISTENER -->|"Job 수신 대기"| BROKER
+    GHAPP -->|"Installation Access Token"| LISTENER
+    BROKER -->|"Job 트리거"| RUNNER_POD
+    RUNNER_POD -->|"kubectl rollout status"| EKS
 ```
 
 ### Namespace 구성
@@ -146,9 +154,11 @@ Step 4. 배포 완료 검증 (ARC self-hosted runner ← 여기!)
 
 ### Sync Wave 순서
 
-```
-wave 3  arc-manifests  → ServiceAccount 생성
-wave 4  arc-runner     → AutoscalingRunnerSet 생성 (controller 필요)
+```mermaid
+flowchart LR
+    W3["Wave 3\narc-manifests\nServiceAccount 생성"]
+    W4["Wave 4\narc-runner\nAutoscalingRunnerSet 생성"]
+    W3 -->|"controller 준비 완료 후"| W4
 ```
 
 > controller는 ArgoCD가 아닌 Terraform Helm provider로 관리한다. 이유는 [트러블슈팅 섹션](#9-트러블슈팅)에서 설명한다.
@@ -535,7 +545,7 @@ USER runner
 
 ### CI 파이프라인 — sha7 tag + writeback
 
-`purina-nextjs`, `purina-api`와 동일하게 **sha7 tag + CI writeback** 패턴을 적용한다. CI가 `helm/arc-runner/values.yaml`의 image 태그를 직접 커밋하여 어떤 이미지가 배포됐는지 git 이력으로 추적 가능하다.
+`<service>-nextjs`, `<service>-api`와 동일하게 **sha7 tag + CI writeback** 패턴을 적용한다. CI가 `helm/arc-runner/values.yaml`의 image 태그를 직접 커밋하여 어떤 이미지가 배포됐는지 git 이력으로 추적 가능하다.
 
 ```yaml
 # .github/workflows/<prefix>-gitactions-arc-runner-apne2-pipe.yml
@@ -1060,7 +1070,7 @@ runner pod가 2~3초 만에 Completed/Failed
 ## 파일 구조
 
 ```
-purina-kr-infra/
+<repo-name>/
 ├── .github/
 │   ├── dependabot.yml
 │   └── workflows/
