@@ -715,11 +715,11 @@ Valkey는 두 곳에 동시에 데이터를 저장한다.
 [api] → redis.setex("otp:010...", 180, "382941")
                     ↓
          ┌──────────────────────────┐
-         │      Valkey 파드 내부     │
+         │      Valkey 파드 내부    │
          │                          │
-         │  ① RAM (메모리)           │ ← 모든 읽기/쓰기 (us 단위 응답)
-         │        ↓ 주기적 스냅샷    │
-         │  ② EBS gp3 디스크         │ ← /bitnami/valkey/data/dump.rdb
+         │  ① RAM (메모리)          │ ← 모든 읽기/쓰기 (us 단위 응답)
+         │        ↓ 주기적 스냅샷   │
+         │  ② EBS gp3 디스크        │ ← /bitnami/valkey/data/dump.rdb
          └──────────────────────────┘
 ```
 

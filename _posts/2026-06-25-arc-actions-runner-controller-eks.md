@@ -97,43 +97,43 @@ Step 4. 배포 완료 검증 (ARC self-hosted runner ← 여기!)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│  Terraform (관리 영역)                                           │
+│  Terraform (관리 영역)                                          │
 │                                                                 │
 │  aws_ecr_repository.arc_runner                                  │
-│    └─ arc-runner (커스텀 이미지 — kubectl + aws cli 포함)        │
+│    └─ arc-runner (커스텀 이미지 — kubectl + aws cli 포함)       │
 │                                                                 │
-│  aws_secretsmanager_secret.arc_github_app       (Step 26-1)    │
-│    └─ <prefix>-arc-github-app-apne2-secret                     │
-│         github_app_id / installation_id / private_key          │
+│  aws_secretsmanager_secret.arc_github_app       (Step 26-1)     │
+│    └─ <prefix>-arc-github-app-apne2-secret                      │
+│         github_app_id / installation_id / private_key           │
 │                                                                 │
-│  helm_release.arc_controller                    (Step 26-2)    │
+│  helm_release.arc_controller                    (Step 26-2)     │
 │    └─ arc-system namespace                                      │
-│         Deployment: arc-controller-gha-rs-controller           │
+│         Deployment: arc-controller-gha-rs-controller            │
 │         CRD x4: AutoscalingRunnerSet, EphemeralRunner, 등       │
 │                                                                 │
-│  aws_iam_role.arc_runner + Pod Identity         (Step 26)      │
-│  aws_eks_access_entry.arc_runner (AmazonEKSViewPolicy)         │
+│  aws_iam_role.arc_runner + Pod Identity         (Step 26)       │
+│  aws_eks_access_entry.arc_runner (AmazonEKSViewPolicy)          │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│  ArgoCD (관리 영역)                                              │
+│  ArgoCD (관리 영역)                                             │
 │                                                                 │
-│  arc-manifests App  →  kubernetes/arc-runners/                 │
+│  arc-manifests App  →  kubernetes/arc-runners/                  │
 │    └─ arc-runners namespace                                     │
 │         ServiceAccount: arc-runner                              │
 │                                                                 │
-│  arc-runner App     →  helm/arc-runner/values.yaml             │
+│  arc-runner App     →  helm/arc-runner/values.yaml              │
 │    └─ arc-runners namespace                                     │
-│         AutoscalingRunnerSet: <prefix>-runner                  │
-│           minRunners: 0 / maxRunners: 3                        │
+│         AutoscalingRunnerSet: <prefix>-runner                   │
+│           minRunners: 0 / maxRunners: 3                         │
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
 │  ESO (External Secrets Operator)                                │
 │                                                                 │
-│  ExternalSecret: github-runner-secret (arc-runners namespace)  │
-│    └─ Secrets Manager → k8s Secret: github-runner-secret       │
-│         github_app_id, installation_id, private_key            │
+│  ExternalSecret: github-runner-secret (arc-runners namespace)   │
+│    └─ Secrets Manager → k8s Secret: github-runner-secret        │
+│         github_app_id, installation_id, private_key             │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
