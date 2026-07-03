@@ -211,53 +211,63 @@ grafana:
 
 ### 실제 대시보드 레이아웃 (스크린샷 기준)
 
-**섹션 1 — 상단 핵심 지표 4종**
+**섹션 1 — 상단 핵심 지표**
 
-```
-┌────────────────────────────┬─────────────────────────────┬──────────────┬──────────────┐
-│ Memory / CPU               │ Blackbox Probe Rate         │ Memory       │ P95 Latency  │
-│ (timeseries)               │ (timeseries)                │ (gauge)      │ (gauge)      │
-│                            │                             │              │              │
-│ memory: ~20%               │ probe rate: ~80 ops/s       │   24.4%      │   221 ms     │
-│ cpu:    ~10%               │ probe rate(-1h): 비교선     │              │              │
-├────────────────────────────┴─────────────────────────────┤──────────────┼──────────────┤
-│                                                          │ Container    │ Running Pods │
-│                                                          │ Restarts(1h) │              │
-│                                                          │     0        │     87       │
-└──────────────────────────────────────────────────────────┴──────────────┴──────────────┘
-```
+상단 행은 좌측 2/3을 timeseries 2개가 차지하고, 우측에 gauge 2개가 세로로 배치된다.
+
+| 패널 | 타입 | 측정값 |
+|---|---|---|
+| Memory / CPU | timeseries | memory ~20%, cpu ~10% |
+| Blackbox Probe Rate | timeseries | ~80 ops/s (1h 전 비교선 포함) |
+| Memory | gauge | 24.4% |
+| P95 Latency | gauge | 221 ms |
+
+좌측 timeseries 아래 행에는 stat 패널 2개가 위치한다.
+
+| 패널 | 값 |
+|---|---|
+| Container Restarts (1h) | 0 |
+| Running Pods | 87 |
 
 `probe rate(-1h)` 비교선을 함께 표시해 현재 probe 빈도가 평소와 달라졌는지 한눈에 확인할 수 있다.
 
 **섹션 2 — 네임스페이스별 리소스 현황**
 
-```
-┌──────────────────────────────────────┬──────────────────────────────────────┐
-│ CPU Usage by Namespace (stacked)     │ Top Namespaces (Memory) (bar)        │
-│                                      │                                      │
-│ monitoring:  0.253 cores             │ monitoring:      3.42 GB ████████    │
-│ <app-ns>:    0.138 cores             │ argocd:          1.13 GB ███         │
-│ kube-system: 0.062 cores             │ kube-system:     1.02 GB ███         │
-│ argocd:      0.041 cores             │ <app-ns>:         300 MB █           │
-│ karpenter:   0.035 cores             │ karpenter:        217 MB █           │
-│ external-secrets: 0.002 cores        │                                      │
-│ arc-system / arc-runners: < 0.001    │                                      │
-└──────────────────────────────────────┴──────────────────────────────────────┘
-```
+좌측은 stacked timeseries, 우측은 bar chart로 나란히 배치된다.
+
+CPU Usage by Namespace (stacked timeseries):
+
+| Namespace | CPU |
+|---|---|
+| monitoring | 0.253 cores |
+| `<app-namespace>` | 0.138 cores |
+| kube-system | 0.062 cores |
+| argocd | 0.041 cores |
+| karpenter | 0.035 cores |
+| external-secrets | 0.002 cores |
+| arc-system / arc-runners | < 0.001 cores |
+
+Top Namespaces Memory (bar chart):
+
+| Namespace | Memory |
+|---|---|
+| monitoring | 3.42 GB |
+| argocd | 1.13 GB |
+| kube-system | 1.02 GB |
+| `<app-namespace>` | 300 MB |
+| karpenter | 217 MB |
 
 **섹션 3 — HTTP 응답 시간 분포**
 
-```
-┌──────────────────────────────────────────┬──────────────┐
-│ HTTP Probe Response Time (timeseries)    │ Percentile   │
-│                                          │              │
-│ 200ms ─────────────────────────────────  │ P25:  87.6ms │
-│  (일시적 600ms+ spike 구간 존재)         │ P50:  92.8ms │
-│                                          │ P75:   149ms │
-│                                          │ P90:   211ms │
-│                                          │ P95:   221ms │
-└──────────────────────────────────────────┴──────────────┘
-```
+좌측은 HTTP Probe Response Time timeseries, 우측은 Percentile 테이블이다. 평상시 100ms 이하를 유지하나 일시적으로 600ms+ spike 구간이 발생하는 것이 확인된다.
+
+| Percentile | 응답시간 |
+|---|---|
+| P25 | 87.6 ms |
+| P50 | 92.8 ms |
+| P75 | 149 ms |
+| P90 | 211 ms |
+| P95 | 221 ms |
 
 > **HTTP Probe Response Time에서 600ms+ spike가 보인다.**<br>
 > Blackbox Exporter의 probe interval 또는 timeout 설정을 확인해야 한다. DNS lookup latency나 TLS handshake 지연일 가능성이 있다.
@@ -265,57 +275,31 @@ grafana:
 
 **섹션 4 — Uptime & Service Status**
 
-```
-┌───────────────────┬──────────────────────────────────────────────────────────┐
-│ Uptime — 24h      │ Service Status (table)                                   │
-│                   │ URL                              Status                  │
-│ <서비스명>        │ https://argocd.<domain>          ✅                      │
-│    100%           │ https://grafana.<domain>         ✅                      │
-│                   │ https://<service>.<domain>       ✅                      │
-└───────────────────┴──────────────────────────────────────────────────────────┘
-```
+좌측에 Uptime 24h stat 패널(`<서비스명>` 100%), 우측에 Service Status 테이블이 배치된다.
 
-**섹션 5 — ArgoCD 상태 (stat panels)**
+| URL | Status |
+|---|---|
+| https://argocd.`<domain>` | ✅ |
+| https://grafana.`<domain>` | ✅ |
+| https://`<service>.<domain>` | ✅ |
 
-```
-┌─────────────────────┬──────────────────────┬────────────────────────────────┐
-│ ArgoCD Total Apps   │ ArgoCD OutOfSync Apps│ ArgoCD Degraded Apps           │
-│                     │                      │                                │
-│        20           │          0           │          0                     │
-│    (green bg)       │     (green bg)       │      (green bg)                │
-└─────────────────────┴──────────────────────┴────────────────────────────────┘
-```
+**섹션 5 — ArgoCD 상태**
 
-`OutOfSync > 0` 또는 `Degraded > 0`이면 배경색이 자동으로 붉게 변하도록 Threshold를 설정한다.
+stat 패널 3개가 가로로 나열된다. 값이 0이면 green, 1 이상이면 자동으로 red로 변하도록 Threshold를 설정했다.
+
+| 패널 | 값 | 색상 |
+|---|---|---|
+| ArgoCD Total Apps | 20 | green |
+| ArgoCD OutOfSync Apps | 0 | green |
+| ArgoCD Degraded Apps | 0 | green |
 
 **섹션 6 — SSL 만료 & PVC 사용률**
 
-```
-┌───────────────────────────────────────┬──────────────────────────────────────┐
-│ SSL Certificate Expiry (days, table)  │ PVC Usage % (table)                  │
-│                                       │                                      │
-│ container         endpoint            │ endpoint      instance   namespace   │
-│ blackbox-exporter argocd.<domain>     │ https-metrics 172.16.1.x monitoring  │
-│ blackbox-exporter grafana.<domain>    │ https-metrics 172.16.1.x monitoring  │
-│ blackbox-exporter <service>.<domain>  │ https-metrics 172.16.2.x <app-ns>    │
-└───────────────────────────────────────┴──────────────────────────────────────┘
-```
+SSL Certificate Expiry 테이블과 PVC Usage 테이블이 나란히 배치된다. SSL 테이블은 `blackbox-exporter`가 각 엔드포인트의 인증서 만료일을 보여주고, PVC 테이블은 각 노드의 PVC 사용률을 표시한다.
 
-**섹션 7 — ArgoCD Applications 전체 현황 (table)**
+**섹션 7 — ArgoCD Applications 전체 현황**
 
-```
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ ArgoCD Applications                                                            │
-│ Namespace   │ Health   │ Application                    │ Sync Status          │
-│─────────────┼──────────┼────────────────────────────────┼───────────────────── │
-│ argocd      │ Healthy  │ <prefix>-image-updater         │ Synced               │
-│ monitoring  │ Healthy  │ <prefix>-redis-exporter        │ Synced               │
-│ ...         │ ...      │ ...                            │ ...                  │
-│ (총 20개 앱 전체 표시)                                                         │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
-
-Health가 `Degraded`이거나 Sync Status가 `OutOfSync`인 행은 붉은색으로 강조된다.
+전체 20개 Application의 Namespace / Health / Application명 / Sync Status를 테이블로 표시한다. Health가 `Degraded`이거나 Sync Status가 `OutOfSync`인 행은 붉은색으로 강조된다.
 
 ### 서비스 상태(Uptime) — Blackbox Exporter
 
