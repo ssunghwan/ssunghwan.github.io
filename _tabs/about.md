@@ -39,7 +39,7 @@ order: 4
 
 ## 💼 Experiences
 
-**Cloud Architecture & Security** | Manager | 2023.07 ~
+**Cloud Engineer** | Manager | 2023.07 ~
 
 - Market Korea 내 AWS · Azure 클라우드 인프라 운영
   - eCommerce 플랫폼 인프라 운영 및 보안 강화
