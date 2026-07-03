@@ -1,7 +1,7 @@
 ---
-title: "Migrating from aws-auth ConfigMap to Access Entry (API-only mode)"
+title: "EKS 인증 방식 마이그레이션 — aws-auth ConfigMap에서 Access Entry(API 전용 모드)로"
 date: 2026-06-30 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
 tags: [eks, aws-auth, access-entry, iam, terraform, kubernetes, security, rbac, cloudtrail]
 ---
 
@@ -698,29 +698,21 @@ kubectl get configmap aws-auth -n kube-system
 
 ### 마이그레이션 전후 비교
 
-```
-[마이그레이션 전]
-authenticationMode: API_AND_CONFIG_MAP
+**마이그레이션 전** — `authenticationMode: API_AND_CONFIG_MAP`
 
-┌──────────────────────────┬────────────┬────────────────────────┐
-│ IAM 롤                   │ aws-auth   │ Access Entry           │
-├──────────────────────────┼────────────┼────────────────────────┤
-│ admin_role_arn           │ ✗          │ ✅ STANDARD            │
-│ karpenter-node-role      │ ✗          │ ✅ EC2_LINUX           │
-│ eks-apne2-node-role      │ 수동 등록  │ 자동 생성 (숨김)       │
-└──────────────────────────┴────────────┴────────────────────────┘
+| IAM 롤 | aws-auth | Access Entry |
+|---|---|---|
+| admin_role_arn | ✗ | ✅ STANDARD |
+| karpenter-node-role | ✗ | ✅ EC2_LINUX |
+| eks-apne2-node-role | ✅ 수동 등록 | 자동 생성 (숨김) |
 
-[마이그레이션 후]
-authenticationMode: API
+**마이그레이션 후** — `authenticationMode: API`
 
-┌──────────────────────────┬────────────┬─────────────────────────────────┐
-│ IAM 롤                   │ aws-auth   │ Access Entry                    │
-├──────────────────────────┼────────────┼─────────────────────────────────┤
-│ admin_role_arn           │ 삭제됨     │ ✅ STANDARD (eks/main.tf)       │
-│ karpenter-node-role      │ 해당없음   │ ✅ EC2_LINUX (karpenter/main.tf)│
-│ eks-apne2-node-role      │ 삭제됨     │ ✅ EC2_LINUX (eks/main.tf)      │
-└──────────────────────────┴────────────┴─────────────────────────────────┘
-```
+| IAM 롤 | aws-auth | Access Entry |
+|---|---|---|
+| admin_role_arn | 삭제됨 | ✅ STANDARD (`eks/main.tf`) |
+| karpenter-node-role | 해당 없음 | ✅ EC2_LINUX (`karpenter/main.tf`) |
+| eks-apne2-node-role | 삭제됨 | ✅ EC2_LINUX (`eks/main.tf`) |
 
 ### 마이그레이션 효과
 
