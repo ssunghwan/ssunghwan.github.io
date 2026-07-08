@@ -1,5 +1,5 @@
 ---
-title: "EKS 인증 방식 마이그레이션 — aws-auth ConfigMap에서 Access Entry(API 전용 모드)로"
+title: "Migrating EKS Authentication Methods — From aws-auth ConfigMap to Access Entries (API-only mode)"
 date: 2026-06-30 09:00:00 +0900
 categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
 tags: [eks, aws-auth, access-entry, iam, terraform, kubernetes, security, rbac, cloudtrail]

@@ -1,5 +1,5 @@
 ---
-title: "EKS에서 ARC(Actions Runner Controller) 구성하기 — GitHub Actions Self-hosted Runner GitOps 운영"
+title: "Configuring ARC (Actions Runner Controller) on EKS — GitOps Operations for Self-hosted Runners"
 date: 2026-06-25 09:00:00 +0900
 categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
 tags: [eks, arc, github-actions, self-hosted-runner, gitops, argocd, github-apps, kubernetes, pod-identity, terraform]
