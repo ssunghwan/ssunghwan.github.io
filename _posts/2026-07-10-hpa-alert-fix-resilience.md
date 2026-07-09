@@ -1,11 +1,11 @@
 ---
-title: "E-commerce EKS Workload Resilience Enhancement Guide"
-date: 2026-06-08 09:00:00 +0900
+title: "Guide to Enhancing E-commerce EKS Workload Resilience"
+date: 2026-07-10 09:00:00 +0900
 categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
 tags: [eks, hpa, karpenter, pdb, graceful-shutdown, msa, crossplane, gitops, argocd, kubernetes]
 ---
 
-> 이번 포스팅은 이커머스 EKS 환경에서 워크로드 복원력을 높이기 위한 설계 가이드다.<br>
+> 이 포스팅은 이커머스 EKS 환경에서 워크로드 복원력을 높이기 위한 설계 가이드다.<br>
 > HPA 설계 및 Alert Expression 올바른 작성법, PDB를 통한 자발적 중단 제어, Graceful Shutdown 설계, AZ 분산 전략, 그리고 운영 환경 전환 시 체크리스트와 MSA 전환 장기 로드맵까지 다룬다.
 {: .prompt-info }
 
@@ -974,3 +974,460 @@ metadata:
 > 공통 유틸, DTO를 shared-library로 묶으면 다시 강결합이 발생한다.<br>
 > 서비스마다 독립적인 모델을 가지고, 필요 시 API 계약(OpenAPI)으로만 통신해야 한다.
 {: .prompt-warning }
+
+---
+
+## Part 2. API 파드 AZ 편중 사고 분석 — Karpenter Consolidation과 TopologySpreadConstraints의 상호작용 (2026-07-07)
+
+> Stakater Reloader가 RDS 자격증명 로테이션을 감지해 정상적으로 자동 롤링 재시작을 수행했는데, 재시작 이후 API 파드 2개가 서로 다른 노드에 있음에도 **같은 AZ**에 몰려버리는 현상이 발생했다.<br>
+> Karpenter Consolidation과 `topologySpreadConstraints`의 소프트 제약이 맞물려 발생한 구조적 문제를 분석하고 개선한 과정을 다룬다.
+{: .prompt-info }
+
+> **관련 포스팅**: [Stakater Reloader 도입 — Secret/ConfigMap 변경 시 파드 자동 롤링 재시작](/posts/stakater-reloader-secret-auto-restart/) — 이번 사고를 촉발한 재시작의 배경
+{: .prompt-tip }
+
+---
+
+### 사고 요약
+
+| 항목 | 내용 |
+|---|---|
+| 증상 | `<prefix>-api-apne2-deploy` 파드 2개가 서로 다른 파드 IP를 갖지만, 두 파드 모두 같은 물리 노드(`ap-northeast-2a`)에서 실행 중 — 실질적으로 **AZ 분산이 전혀 안 되고 있었음** |
+| 대조군 | 같은 네임스페이스의 `nextjs` Deployment는 `ap-northeast-2a`/`ap-northeast-2c`에 정확히 1개씩 분산 — 두 Deployment의 YAML 설정은 **구조적으로 완전히 동일** |
+| 근본 원인 | ① `whenUnsatisfiable: ScheduleAnyway`(소프트 제약)로 스케줄러가 같은 노드 배치를 허용 → ② 반대편 AZ(`ap-northeast-2c`)의 api 전용 노드가 파드 0개(empty)가 됨 → ③ Karpenter의 `WhenEmptyOrUnderutilized` + `consolidateAfter: 30s`가 그 빈 노드를 삭제 |
+| 트리거 | Stakater Reloader가 `mysql-secret`(RDS 자격증명 로테이션) 감지해 수행한 정상적인 자동 롤링 재시작 — **재시작 자체는 의도된 정상 동작** |
+| 결정적 증거 | Karpenter 컨트롤러 로그에서 `"reason":"empty","decision":"delete"`로 `api-apne2c-nodepool`의 노드를 삭제한 기록 확인 |
+| 조치 완료 | `whenUnsatisfiable: DoNotSchedule` + `minDomains: 2`, `consolidateAfter: 30s → 2m` (2026-07-08 dev 반영) |
+
+---
+
+### 발견 경위
+
+사용자가 아래 결과를 보고 의문을 제기했다.
+
+```bash
+kubectl get pods -n <app-namespace> -o wide
+
+NAME                                    READY  STATUS   NODE
+<prefix>-api-apne2-deploy-xxx-rnwvc     1/1    Running  ip-172-16-1-196...  # AZ-a
+<prefix>-api-apne2-deploy-xxx-vw6h9     1/1    Running  ip-172-16-1-196...  # AZ-a ← 같은 노드!
+<prefix>-nextjs-apne2-deploy-xxx-krfgm  1/1    Running  ip-172-16-2-84...   # AZ-c
+<prefix>-nextjs-apne2-deploy-xxx-nqhc8  1/1    Running  ip-172-16-1-115...  # AZ-a
+```
+
+`api` 파드 2개가 **완전히 동일한 노드**에서 실행 중이었다. `nextjs`는 서로 다른 노드에 정확히 분산돼 있는데, 왜 `api`만 쏠렸는가가 조사의 출발점이었다.
+
+---
+
+### 조사 과정
+
+**Step 1 — Deployment 스펙 확인**
+
+```yaml
+# api Deployment
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: ScheduleAnyway   # ← 소프트 제약
+  labelSelector:
+    matchLabels:
+      app: <prefix>-api
+```
+
+`nextjs` Deployment도 동일하게 `ScheduleAnyway`였다. 즉 **YAML 차이가 원인이 아님** 확인.
+
+**Step 2 — 노드/AZ 전수 조사**
+
+```bash
+kubectl get nodes -o wide --show-labels
+
+ip-172-16-1-115...  ap-northeast-2a  role=web
+ip-172-16-1-153...  ap-northeast-2a  role=system
+ip-172-16-1-196...  ap-northeast-2a  role=api   ← api 노드가 이것뿐
+ip-172-16-2-208...  ap-northeast-2c  role=system
+ip-172-16-2-84...   ap-northeast-2c  role=web
+```
+
+결정적 단서: **`role=api` 노드가 클러스터 전체에 `ap-northeast-2a`에 딱 1대뿐**이었다. `nodeSelector: role: api`로 스케줄링이 제한되는 이상, 노드가 1대뿐이면 두 replica가 물리적으로 같은 노드에 갈 수밖에 없다.
+
+**Step 3 — Karpenter NodePool 확인**
+
+```bash
+# api NodePool 상태
+api-apne2a-nodepool  nodes=1   # AZ-a 노드 1대 존재
+api-apne2c-nodepool  nodes=0   # AZ-c 노드 없음 ← 문제
+web-apne2a-nodepool  nodes=1
+web-apne2c-nodepool  nodes=1
+```
+
+api용 NodePool은 `apne2a`/`apne2c` 둘 다 정의되어 있었다. 설정은 대칭인데, 실제 뜬 노드만 비대칭 — "무슨 일이 있어서 2c 노드가 사라졌다"는 히스토리 문제로 조사 방향을 전환했다.
+
+**Step 4 — Karpenter 컨트롤러 로그 (결정적 증거)**
+
+```bash
+kubectl -n karpenter logs -l app.kubernetes.io/name=karpenter \
+  --since=200h | grep -i "api-apne2c"
+```
+
+```json
+{
+  "time": "2026-07-06T06:21:49Z",
+  "message": "disrupting node(s)",
+  "controller": "disruption",
+  "reason": "empty",
+  "decision": "delete",
+  "nodes": ["ip-172-16-2-135 (api-apne2c-nodepool)"]
+}
+```
+
+**`reason: "empty"`** — Reloader가 api 파드를 재시작하는 과정에서 롤링 업데이트 특성상 잠시 AZ-c 노드가 비었고, Karpenter의 `consolidateAfter: 30s`가 30초 만에 그 빈 노드를 삭제해버렸다. 그 이후 새 파드들은 AZ-a 노드 1대에 몰릴 수밖에 없었다.
+
+---
+
+### 근본 원인 상세 — 두 시스템의 정상 동작이 맞물린 결과
+
+```
+[Reloader] mysql-secret 변경 감지
+  → api Deployment 롤링 재시작 트리거
+        ↓
+[K8s RollingUpdate] 순서:
+  1. 새 파드(pod-A) 생성 요청 → 스케줄러: AZ-a 노드에 배치 (ScheduleAnyway이므로 허용)
+  2. 기존 파드(pod-B, AZ-c) 종료
+  3. 새 파드(pod-C) 생성 요청 → 스케줄러: AZ-c 노드가 비어있고, ScheduleAnyway이므로 AZ-a에도 허용
+        ↓
+[AZ-c api 노드] 파드 0개 = Empty 상태
+        ↓
+[Karpenter Consolidation] consolidateAfter: 30s → 30초 뒤 삭제
+  "reason": "empty", "decision": "delete"
+        ↓
+[결과] api 파드 2개 모두 AZ-a에, AZ-c 노드 없음
+       다음 재시작까지 이 상태 고정
+```
+
+> **`ScheduleAnyway`와 `WhenEmptyOrUnderutilized`는 각각 합리적인 기본값이지만, 같이 있으면 "한 번의 쏠림이 영구화"되는 조합이 된다.**<br>
+> `nextjs`가 현재 잘 분산돼 있어 보이는 건 "구조적으로 보장"된 게 아니라 "다음 재시작 타이밍에 운이 좋았을 뿐"이다.
+{: .prompt-danger }
+
+---
+
+### Reloader 재시작 자체는 문제가 아니다 — 책임 소재 명확화
+
+이 사고를 보고 "Reloader 도입이 잘못됐다"고 해석하면 안 된다.
+
+```
+[정상 동작] Reloader → 롤링 재시작 (의도된 동작)
+[정상 동작] Karpenter → 빈 노드 삭제 (의도된 동작)
+[문제]      ScheduleAnyway → 쏠림을 막지 않음 (소프트 제약의 한계)
+```
+
+Reloader가 없었다면 사고가 안 났을까? 아니다. 다음 중 어떤 이벤트에서든 동일하게 재현된다.
+
+| 이벤트 | 발생 주기 |
+|---|---|
+| RDS 자격증명 로테이션 | 매주 자동 |
+| 배포(CI/CD) | PR merge 시마다 |
+| Karpenter 노드 만료(`expireAfter: 720h`) | 30일마다 |
+| AMI 업데이트(`al2023@latest`) | AWS AMI 릴리즈 시마다 |
+
+Reloader는 이 이벤트들 중 하나를 오늘 트리거했을 뿐이다. 근본 원인은 `ScheduleAnyway` + Karpenter 공격적 통합 정책의 조합이다.
+
+---
+
+### 관련 YAML 필드 전수 해설
+
+#### topologySpreadConstraints — ScheduleAnyway vs DoNotSchedule
+
+| 값 | 동작 | 결과 |
+|---|---|---|
+| `ScheduleAnyway` (소프트 제약) | AZ 분산이 불가능해도 어딘가에 배치 | 쏠림 허용, 가용성 미보장 |
+| `DoNotSchedule` (하드 제약) | AZ 분산이 불가능하면 Pending 유지 | 쏠림 불허, 일시적 Pending 가능 |
+
+`minDomains` 필드와의 조합:
+
+```yaml
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: DoNotSchedule
+  minDomains: 2         # 최소 2개 AZ에 노드가 있어야 함을 스케줄러에 명시
+  labelSelector:
+    matchLabels:
+      app: <prefix>-api
+```
+
+> **`minDomains: 2`를 추가하는 이유**<br>
+> `DoNotSchedule`만 설정하면 스케줄러는 "현재 눈에 보이는 노드"를 기준으로 판단한다.<br>
+> AZ-c 노드가 이미 삭제된 상태라면 "AZ-a에 1개 있으니 maxSkew=1 만족" → 허용해버린다.<br>
+> `minDomains: 2`는 "가용한 도메인(AZ)이 최소 2개 미만이면 아예 스케줄 불가"를 추가로 강제해, Karpenter가 반대편 AZ에 노드를 새로 띄울 때까지 Pending으로 대기시킨다.
+{: .prompt-info }
+
+**`maxSkew`의 의미:**
+
+```
+maxSkew: 1 일 때:
+  AZ-a: 1개, AZ-c: 1개 → skew=0 ✅
+  AZ-a: 2개, AZ-c: 1개 → skew=1 ✅ (maxSkew 이하)
+  AZ-a: 2개, AZ-c: 0개 → skew=2 ❌ → DoNotSchedule이면 Pending, ScheduleAnyway면 허용
+```
+
+---
+
+#### Karpenter NodePool — 주요 필드 상세
+
+현재 api/web NodePool의 전체 구성과 각 필드의 의미를 정리한다.
+
+```yaml
+# kubernetes/karpenter/nodepool-api-apne2a.yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+spec:
+  template:
+    spec:
+      requirements:
+        - key: kubernetes.io/arch
+          operator: In
+          values: [amd64]
+        - key: kubernetes.io/os
+          operator: In
+          values: [linux]
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: [on-demand]
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: [t, m, c]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: [medium, large, xlarge]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: [ap-northeast-2a]
+      taints:
+        - key: dedicated
+          value: api
+          effect: NoSchedule
+      expireAfter: 720h
+  limits:
+    cpu: 4
+    memory: 16Gi
+  disruption:
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 2m   # 30s → 2m (2026-07-08 수정)
+```
+
+**필드별 표준 관점:**
+
+| 필드 | 현재 값 | 이커머스 표준 관점 |
+|---|---|---|
+| `karpenter.sh/capacity-type` | `on-demand` | 결제/API처럼 갑작스러운 파드 종료가 장애로 이어지는 워크로드는 on-demand가 표준. 상태 없는 배치성 워크로드는 spot 혼용도 흔함 |
+| `instance-category` | `t, m, c` | t(버스터블)/m(범용)/c(컴퓨트 최적화)를 허용해 Karpenter의 최적 인스턴스 선택 여지를 줌. 너무 좁으면 가용 용량 부족 위험 |
+| `instance-size` | `medium, large, xlarge` | 합리적인 범위. small은 파드 스케줄링 밀도가 낮아 비효율, 2xlarge 이상은 단일 노드 장애 영향이 커짐 |
+| `topology.kubernetes.io/zone` | `ap-northeast-2a` (AZ별 NodePool 분리) | **AZ별로 NodePool을 분리하는 패턴 자체가 표준** — AZ별 정책(limit, budget)을 독립적으로 관리 가능 |
+| `taints` | `dedicated=api:NoSchedule` | Deployment의 toleration과 짝을 이루어 api 워크로드만 이 노드에 스케줄링되도록 격리 |
+| `limits.cpu/memory` | `cpu: 4, memory: 16Gi` | dev 규모에 맞는 보수적 상한. 무한정 스케일아웃을 막는 안전핀 — 예상치 못한 폭주로 인한 과금 폭탄 방지 |
+| `expireAfter` | `720h` (30일) | 명시하지 않으면 Karpenter가 동일한 기본값을 암묵적으로 적용. **git에 의도가 기록되지 않는다는 것 자체가 갭** — 노드 만료도 재배치 이벤트이므로 §6-1 하드 제약 없이는 30일마다 동일 사고가 재현될 잠재 위험 |
+
+**`consolidationPolicy` 재검토:**
+
+`WhenEmpty`로 바꾸면 이번 사고를 막을 수 있을까?
+
+```
+[이번 사고의 Karpenter 로그]
+"reason": "empty"   ← 파드 0개인 노드를 삭제
+"decision": "delete"
+```
+
+| 정책 | 파드 0개인 노드 | 저활용 노드 |
+|---|---|---|
+| `WhenEmpty` | 삭제 대상 ✅ | 건드리지 않음 |
+| `WhenEmptyOrUnderutilized` | 삭제 대상 ✅ | 삭제 대상 |
+
+두 정책 모두 **완전히 빈 노드는 동일하게 즉시 삭제 대상**이다. `WhenEmpty`로 바꿔도 이번 사고는 그대로 재현된다. 따라서 `consolidationPolicy` 변경은 기각했다.
+
+**`consolidateAfter: 30s → 2m` 변경 이유:**
+
+```
+롤링 업데이트 타임라인 (api, replica 2):
+  t=0s   새 파드-A 생성 (AZ-a)
+  t=10s  기존 파드-B (AZ-c) 종료 → AZ-c 노드 Empty
+  t=40s  consolidateAfter=30s → Karpenter가 AZ-c 노드 삭제 ← 이번 사고
+  t=45s  새 파드-C 생성 요청 → AZ-c 노드 없음 → AZ-a에 배치 (ScheduleAnyway)
+
+  consolidateAfter=2m 이었다면:
+  t=10s  기존 파드-B 종료 → AZ-c 노드 Empty
+  t=30s  새 파드-C 생성 요청 → DoNotSchedule이면 Pending
+         → Karpenter가 AZ-c에 새 노드 프로비저닝 (~60s)
+  t=90s  AZ-c 노드 준비 → 파드-C 배치
+  t=120s consolidateAfter=2m → 아직 AZ-c 노드에 파드-C 있음 → 삭제 안 함 ✅
+```
+
+> `consolidateAfter` 연장은 `DoNotSchedule`(근본 원인 수정)을 보완하는 **안전 마진**이다.<br>
+> `DoNotSchedule`만으로 이미 쏠림 경로가 차단되지만, 아직 파악하지 못한 엣지케이스를 대비해 여유 시간을 확보했다.
+{: .prompt-tip }
+
+**`disruption.budgets` — 암묵적 기본값의 위험:**
+
+```yaml
+# 명시하지 않으면 Karpenter가 자동으로 채우는 기본값
+disruption:
+  budgets:
+  - nodes: "10%"
+```
+
+`nodes: "10%"`는 "한 번에 전체 NodePool 노드의 10%까지만 동시에 disruption 허용"을 의미한다. NodePool당 노드가 1대라면 10%는 0.1대 → 올림해서 **1대**, 즉 사실상 제한 없음과 같다.
+
+이커머스 운영 표준은 여기에 `schedule`을 추가해 피크 시간대 Consolidation을 금지한다.
+
+```yaml
+# 운영 표준 권장 예시
+disruption:
+  budgets:
+  - nodes: "20%"
+  - nodes: "0"    # 피크 시간대 완전 차단
+    schedule: "0 11 * * 1-5"   # 평일 11시~13시 (점심 피크)
+    duration: 2h
+  - nodes: "0"
+    schedule: "0 18 * * 1-5"   # 평일 18시~21시 (저녁 피크)
+    duration: 3h
+```
+
+> **현재 `budgets`가 git에 명시되어 있지 않다** — Karpenter 기본값이 적용 중이지만 코드에서 의도를 확인할 방법이 없다. "이 값을 왜 이렇게 뒀는지"가 git history에 전혀 기록되지 않는 것 자체가 유지보수 갭이다.
+{: .prompt-warning }
+
+---
+
+#### Karpenter EC2NodeClass — 보안 관련 필드
+
+```yaml
+# kubernetes/karpenter/ec2nodeclass-api-apne2.yaml
+spec:
+  amiSelectorTerms:
+    - alias: al2023@latest      # 항상 최신 AL2023 AMI 자동 추적
+  instanceProfile: <prefix>-karpenter-apne2-node-profile
+  subnetSelectorTerms:
+    - tags:
+        Name: <prefix>-private-apne2-01-sub   # 태그 기반 서브넷 선택
+  securityGroupSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/<cluster-name>: owned
+  metadataOptions:
+    httpEndpoint: enabled
+    httpTokens: required          # IMDSv2 강제
+    httpPutResponseHopLimit: 1
+  tags:
+    Environment: development
+    ManagedBy: karpenter
+```
+
+**필드별 표준 관점:**
+
+| 필드 | 현재 값 | 표준 관점 |
+|---|---|---|
+| `amiSelectorTerms: al2023@latest` | 최신 AMI 자동 추적 | 보안 패치 자동 반영 장점. 단 **새 AMI = 노드 교체 이벤트** → `DoNotSchedule` 없으면 이번 사고와 동일한 AZ 편중이 AMI 업데이트 시마다 발생 가능 |
+| `subnetSelectorTerms` | 태그 기반 | Terraform이 서브넷을 재생성해도(ID가 바뀌어도) 깨지지 않는 표준 패턴. 하드코딩된 Subnet ID보다 유연 |
+| `securityGroupSelectorTerms` | `kubernetes.io/cluster/<name>: owned` 태그 | EKS가 클러스터 생성 시 자동으로 붙이는 태그. 안전하고 표준적인 방식 |
+| `httpTokens: required` | IMDSv2 강제 | AWS Well-Architected 보안 필러에서 명시적으로 권장. IMDSv1은 SSRF 취약점을 통한 인스턴스 메타데이터(IAM 자격증명 등) 탈취 위험이 있음 |
+| `httpPutResponseHopLimit: 1` | 1홉 제한 | 컨테이너 내부에서 호스트의 IMDS를 우회 접근하는 것을 막는 심화 보안 설정. 기본값은 2인데 1로 낮춰야 컨테이너→호스트 IMDS 우회를 막을 수 있음 |
+
+> **`httpPutResponseHopLimit: 1`이 중요한 이유**<br>
+> 컨테이너 내부 → 호스트 네트워크 → IMDS(`169.254.169.254`) 경로는 TTL이 2홉 이상 필요하다.<br>
+> `hopLimit: 1`로 설정하면 이 경로가 차단되어, 컨테이너가 탈취당해도 호스트의 IAM 자격증명을 가져갈 수 없다.
+{: .prompt-info }
+
+**AZ별 NodePool + EC2NodeClass 분리 패턴의 실익:**
+
+```
+[현재 구조]
+nodepool-api-apne2a.yaml → ec2nodeclass-api-apne2a.yaml (subnet: apne2a 전용)
+nodepool-api-apne2c.yaml → ec2nodeclass-api-apne2c.yaml (subnet: apne2c 전용)
+
+[장점]
+① AZ별 limit 독립 설정 가능
+   apne2a: cpu=4, memory=16Gi
+   apne2c: cpu=8, memory=32Gi  ← AZ별로 다른 capacity 할당 가능
+
+② AZ별 budget 독립 설정 가능
+   apne2a만 피크시간대 consolidation 금지 → apne2c는 허용 등
+
+③ 서브넷이 AZ에 고정되어 있어 노드가 반드시 원하는 AZ에만 생성됨
+   (단일 NodePool에 여러 AZ를 허용하면 Karpenter가 어느 AZ를 선택할지 예측 어려움)
+```
+
+---
+
+### 현재 구성 vs 표준 — 필드별 갭 비교
+
+| 필드 | 기존 값 | 개선 후 값 | 상태 |
+|---|---|---|---|
+| `whenUnsatisfiable` | `ScheduleAnyway` | `DoNotSchedule` | ✅ 2026-07-08 반영 |
+| `minDomains` | 미설정 | `2` | ✅ 2026-07-08 반영 |
+| `strategy.rollingUpdate` | 미명시(K8s 기본값) | `maxSurge: 25%, maxUnavailable: 25%` 명시 | ✅ 2026-07-08 반영 |
+| `consolidationPolicy` | `WhenEmptyOrUnderutilized` | 변경 없음 (WhenEmpty로 변경해도 효과 없음) | 🚫 기각 |
+| `consolidateAfter` | `30s` | `2m` | ✅ 2026-07-08 반영 |
+| `disruption.budgets` | 미명시(기본값 `nodes: 10%`) | 명시 필요 | ❌ 미반영 (남은 과제) |
+| NodePool AZ 수 | 2개 AZ | 3개 AZ | ❌ PROD 단계에서 해소 예정 |
+| `pdb-api.yaml` minAvailable | `1` | `1` | ✅ 충족 |
+| `metadataOptions.httpTokens` | `required` (IMDSv2 강제) | `required` | ✅ 충족 |
+
+---
+
+### 개선 결과 (2026-07-08 dev 반영 완료)
+
+**반영 완료 — `whenUnsatisfiable: DoNotSchedule` + `minDomains: 2`**
+
+```yaml
+# kubernetes/apps/deployment/deployment-api.yaml (변경 후)
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: topology.kubernetes.io/zone
+  whenUnsatisfiable: DoNotSchedule   # ScheduleAnyway → DoNotSchedule
+  minDomains: 2                       # 신규 추가
+  labelSelector:
+    matchLabels:
+      app: <prefix>-api
+
+strategy:
+  rollingUpdate:
+    maxSurge: 25%          # 기존 K8s 기본값에 암묵 의존 → 명시
+    maxUnavailable: 25%
+```
+
+트레이드오프: 노드 교체 직후 등 과도기엔 두 번째 파드가 일시적으로 Pending 상태가 된다(Karpenter가 새 노드를 띄우는 수십 초~수 분). Karpenter가 반대편 AZ에 노드를 자동으로 프로비저닝하므로 서비스는 1개 파드로 계속 운영된다.
+
+**반영 완료 — `consolidateAfter: 30s → 2m`**
+
+```yaml
+# kubernetes/karpenter/nodepool-api-apne2a.yaml (및 2c, web 4개 파일 동일 변경)
+disruption:
+  consolidationPolicy: WhenEmptyOrUnderutilized
+  consolidateAfter: 2m   # 30s → 2m
+```
+
+**보류 — 3-AZ 확장**
+
+dev 환경은 비용 트레이드오프로 2-AZ를 의도적으로 유지. PROD 승격 시점에 `ap-northeast-2b` NodePool 추가, HPA `minReplicas: 3` 상향을 별도 작업으로 진행.
+
+---
+
+### 남은 과제
+
+- [ ] Karpenter api/web NodePool의 `disruption.budgets` 명시 (현재 암묵적 기본값 `nodes: 10%` 의존)
+- [ ] 변경 후 재시작 이벤트를 인위적으로 유발해, AZ당 1개 노드 유지되는지 재검증 (저위험 시크릿으로)
+- [ ] PROD 설계 시 3-AZ 확장 반영 (별도 작업)
+- [ ] `expireAfter`(30일 노드 만료) + `al2023@latest`(자동 AMI 추적)도 재배치 이벤트이므로, 30일 뒤 정상 분산 확인
+
+---
+
+### 회고
+
+> **"지금 우연히 정상으로 보인다"와 "구조적으로 보장된다"는 다르다.** `nextjs`는 현재 AZ에 잘 분산돼 있지만, `api`와 완전히 동일한 소프트 제약(`ScheduleAnyway`) + 공격적인 Karpenter 통합 정책을 갖고 있어 다음 재시작 타이밍에 따라 언제든 같은 방식으로 쏠릴 수 있다.
+{: .prompt-warning }
+
+> **두 시스템이 각각 "설계대로" 동작해도, 조합하면 의도하지 않은 결과가 나올 수 있다.** `ScheduleAnyway`와 `WhenEmptyOrUnderutilized`는 각각 합리적인 기본값이지만, 같이 있으면 "한 번의 쏠림이 영구화"되는 조합이 된다.
+{: .prompt-danger }
+
+> **"암묵적 기본값"은 git에 의도가 안 남는다.** `budgets`, `expireAfter`, `strategy.rollingUpdate` 전부 명시하지 않았는데도 실제로는 값이 채워져 동작한다. 동작 자체는 문제가 아니지만 "이 값을 왜 이렇게 뒀는지"가 git history에 기록되지 않는다는 건 향후 동일한 조사를 반복하게 만드는 갭이다.
+{: .prompt-tip }
+
+> **Karpenter 로그의 `"reason":"empty","decision":"delete"`처럼, 결정적 증거는 대개 컨트롤러 자신의 로그에 이미 남아있다.** 가설을 세우고 추측하기보다, 관련 컨트롤러의 로그를 먼저 훑는 게 더 빠른 경로였다.
+{: .prompt-tip }
