@@ -18,19 +18,16 @@ order: 4
 ## 🛠 Tech Stack
 
 **Cloud & Infrastructure**<br>
-`AWS` `Azure` `EKS` `Lambda` `CloudFront` `EventBridge` `ElastiCache` `ALB` `Route53` `AutoScaling`
+`AWS` `Azure` `EKS` `Lambda` `CloudFront` `EventBridge` `ElastiCache` `ALB` `Route53` `AutoScaling` `WAF` `CloudTrail` `IAM`
 
 **Container & Orchestration**<br>
 `Docker` `Kubernetes` `Helm` `ArgoCD` `Karpenter`
 
 **IaC & Automation**<br>
-`OpenTofu` `Terraform` `Terragrunt` `GitHub Actions`
-
-**Security & Compliance**<br>
-`ISMS-P` `AWS Secrets Manager` `KMS` `CloudTrail` `WAF` `IAM`
+`OpenTofu` `Terraform` `GitHub Actions`
 
 **Monitoring & Observability**<br>
-`CloudWatch` `Athena` `Glue` `Grafana` `Fluent Bit`
+`CloudWatch` `Athena` `Glue` `Grafana` `Prometheus` `Loki`
 
 **Network**<br>
 `Cisco` `FortiGate` `Axgate` `CiscoASA` `Switching & Routing` `LoadBalancer` `IPSec VPN` `SSL VPN`
@@ -39,7 +36,7 @@ order: 4
 
 ## 💼 Experiences
 
-**Cloud Engineer** | Manager | 2023.07 ~
+**Cloud Engineer** | Manager | 2025.06 ~ 2026.12
 
 - Market Korea 내 AWS · Azure 클라우드 인프라 운영
   - eCommerce 플랫폼 인프라 운영 및 보안 강화
