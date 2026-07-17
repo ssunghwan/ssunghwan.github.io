@@ -139,6 +139,71 @@ graph TD
     E --> F[Generated Answer]
 ```
 
+#### 토크나이징 — LLM은 단어가 아니라 토큰을 읽는다
+
+LLM은 텍스트를 그대로 처리하지 않는다. 먼저 텍스트를 **토큰(Token)** 이라는 단위로 분해한다.
+
+```text
+입력: "EKS Node NotReady 발생"
+토큰: ["EKS", " Node", " Not", "Ready", " 발생"]
+```
+
+단어가 아니라 의미 단위로 쪼개진다. 한국어는 영어보다 토큰 소비가 많은 편이다. `kubectl describe node`는 약 4토큰이지만 `노드 상태를 확인해줘`는 더 많은 토큰이 필요하다.
+
+**Context Window**는 LLM이 한 번에 처리할 수 있는 최대 토큰 수다.
+
+```text
+qwen2.5-coder:7b   → 32K 토큰 (약 24,000 단어)
+deepseek-r1:8b     → 128K 토큰
+```
+
+RAG를 구성할 때 검색된 문서 조각들이 context window 안에 들어와야 하므로, 이 크기가 중요하다.
+
+#### Transformer — LLM의 핵심 구조
+
+LLM 내부는 **Transformer** 아키텍처로 구성된다. 2017년 Google의 "Attention is All You Need" 논문에서 등장한 구조로, 현재 GPT, Claude, Qwen, DeepSeek 등 거의 모든 LLM의 기반이 됐다.
+
+Transformer의 핵심은 **Self-Attention** 메커니즘이다.
+
+```text
+입력: "EKS Node가 NotReady 상태일 때 확인 순서를 알려줘"
+
+Self-Attention이 하는 일:
+  "NotReady" → "EKS", "Node", "확인" 과 강하게 연결
+  "알려줘"   → "확인 순서"와 강하게 연결
+  → 문장 내 단어 간 관계를 학습
+```
+
+쉽게 말하면 문장 내의 모든 단어가 서로 얼마나 관련 있는지를 가중치로 계산해서 문맥을 파악하는 방식이다. 기존 RNN이 앞에서부터 순서대로 처리하던 방식과 달리, Transformer는 전체 문장을 한 번에 병렬로 처리한다.
+
+#### 양자화(Quantization) — 왜 7B 모델이 MacBook에서 돌아가는가
+
+원래 7B 파라미터 모델을 float32(32비트) 기준으로 저장하면 약 28GB가 필요하다.
+
+```text
+7,000,000,000 파라미터 × 4바이트(float32) = 28GB
+```
+
+MacBook 18GB RAM으로는 불가능하다.
+
+Ollama는 기본적으로 **4비트 양자화(Q4)** 모델을 사용한다.
+
+```text
+원본 (float32): 28GB
+Q8 양자화:      7GB
+Q4 양자화:      4.7GB  ← Ollama 기본값
+```
+
+파라미터 값을 32비트에서 4비트로 압축하는 것이다. 당연히 정밀도 손실이 있지만, 실제로 써보면 추론 품질 저하는 크지 않다. 덕분에 18GB MacBook에서도 7B~8B 모델 두 개를 동시에 올려놓을 수 있다.
+
+```text
+qwen2.5-coder:7b   → Q4_K_M → 4.7GB
+deepseek-r1:8b     → Q4_K_M → 5.2GB
+합계: 9.9GB → 18GB RAM에서 충분히 동작
+```
+
+#### LLM의 한계 — 내 문서는 모른다
+
 예를 들어 아래처럼 질문하면:
 
 ```text
@@ -154,11 +219,22 @@ LLM은 일반적인 Kubernetes 지식을 기반으로 아래와 같은 내용을
 - IAM Role 확인
 - Security Group / NACL 확인
 
-하지만 여기에는 한계가 있다.
+이건 잘 된다. 하지만 이런 질문은 어떨까.
 
-LLM은 기본적으로 내가 작성한 회사 문서, 장애 RCA, Terraform 코드, 운영 히스토리는 모른다.
+```text
+우리 EKS 클러스터에서 지난주에 발생한 Karpenter AZ 편중 이슈 원인이 뭐였지?
+```
 
-그래서 RAG가 필요하다.
+LLM은 모른다. 내가 작성한 회사 문서, 장애 RCA, Terraform 코드, 운영 히스토리는 학습 데이터에 없기 때문이다.
+
+**학습 데이터 컷오프(Knowledge Cutoff)** 문제도 있다.
+
+```text
+Qwen2.5-coder:7b 학습 데이터: 2024년 이전
+→ 2026년에 출시된 EKS 기능이나 최신 Karpenter API는 모를 수 있음
+```
+
+이 두 가지 한계를 해결하는 것이 RAG다.
 
 ---
 
@@ -172,15 +248,140 @@ LLM이 바로 답변하는 것이 아니라, 먼저 내 문서에서 관련 내�
 
 ```mermaid
 graph TD
-    A[User Question] --> B[Embedding]
-    B --> C[Vector Search]
-    C --> D[Relevant Documents]
-    D --> E[LLM Prompt]
-    A --> E
-    E --> F[Document-grounded Answer]
+    A[User Question] --> B[Embedding Model]
+    B --> C[Question Vector]
+    C --> D[Vector DB 유사도 검색]
+    D --> E[관련 문서 청크 N개]
+    E --> F[LLM Prompt 조합]
+    A --> F
+    F --> G[LLM]
+    G --> H[내 문서 기반 답변]
 ```
 
-예를 들어 내 Obsidian Vault에 아래 문서가 있다고 하자.
+#### Embedding — 텍스트를 숫자 벡터로
+
+RAG의 첫 번째 핵심은 **Embedding**이다.
+
+텍스트를 의미를 담은 숫자 배열(벡터)로 변환하는 과정이다.
+
+```text
+"Apache Worker 고갈" → [0.23, -0.81, 0.44, 0.17, ...]  (수백~수천 차원)
+"EFS Session Lock"  → [0.21, -0.79, 0.41, 0.19, ...]
+"MySQL 슬로우 쿼리"  → [-0.54, 0.33, -0.12, 0.88, ...]
+```
+
+의미가 비슷한 텍스트는 벡터 공간에서 가까운 위치에 있다. "Apache Worker 고갈"과 "EFS Session Lock"은 이번 RCA에서 실제로 연관된 개념이므로 벡터가 유사하게 나온다.
+
+이 유사도를 측정하는 방법이 **코사인 유사도(Cosine Similarity)** 다.
+
+```text
+코사인 유사도 = 1.0  → 완전히 같은 의미
+코사인 유사도 = 0.9  → 매우 유사
+코사인 유사도 = 0.0  → 전혀 관계 없음
+코사인 유사도 = -1.0 → 반대 의미
+```
+
+사용자가 질문하면 질문도 동일한 방식으로 벡터로 변환되고, Vector DB에서 가장 유사한 문서 조각들을 찾는다.
+
+#### Chunking — 문서를 어떻게 쪼개는가
+
+문서 전체를 한 번에 임베딩하지 않는다. LLM의 context window 한계가 있고, 문서 전체를 넣으면 관련 없는 내용이 너무 많이 포함된다.
+
+따라서 문서를 **청크(Chunk)** 단위로 쪼개서 임베딩한다.
+
+```text
+2026-07-10-efs-session-lock-rca.md (총 300줄)
+  → Chunk 1: 섹션 1~2 (Overview, Architecture)
+  → Chunk 2: 섹션 3~4 (핵심 증거, Lock 동작 원리)
+  → Chunk 3: 섹션 5~6 (원인 분석, EFS 증폭)
+  → Chunk 4: 섹션 7~9 (시나리오, Root Cause)
+  → Chunk 5: 섹션 10~11 (개선 방향, Valkey 전환)
+```
+
+청크 크기는 보통 **500~1000 토큰** 단위가 표준이다. 너무 작으면 문맥이 끊기고, 너무 크면 관련 없는 내용이 포함된다.
+
+**Overlap(겹침)** 도 중요하다. 청크 경계에서 문맥이 끊기는 것을 방지하기 위해 앞뒤 청크와 50~100 토큰 정도 겹치게 설정한다.
+
+```text
+Chunk 1: 줄 1~50   (Overlap 없음)
+Chunk 2: 줄 45~95  (앞 청크와 5줄 Overlap)
+Chunk 3: 줄 90~140 (앞 청크와 5줄 Overlap)
+```
+
+#### Vector DB — 임베딩 저장소
+
+임베딩된 청크들을 저장하고 유사도 검색을 수행하는 데이터베이스다.
+
+일반 DB와의 차이:
+
+```text
+MySQL/PostgreSQL
+  → WHERE id = 1234  (정확한 키 검색)
+
+Vector DB (ChromaDB, Qdrant, pgvector 등)
+  → "Apache 장애"와 가장 유사한 문서 Top 5 반환
+  → 의미 기반 유사도 검색
+```
+
+다음 파트에서 실제로 사용할 Vector DB 후보:
+
+| DB | 특징 | 적합한 경우 |
+|---|---|---|
+| ChromaDB | 설치 간단, 로컬 파일 기반 | 개인 프로젝트, 빠른 시작 |
+| Qdrant | 성능 우수, Docker 지원 | 중소규모 프로덕션 |
+| pgvector | PostgreSQL 확장 | 기존 PG를 쓰고 있는 경우 |
+| FAISS | Meta 개발, 고성능 | 대용량 인덱스 |
+
+이번 프로젝트는 **ChromaDB**로 시작할 예정이다. 파일 기반 로컬 저장이라 MacBook에서 추가 인프라 없이 바로 사용할 수 있다.
+
+#### RAG 전체 파이프라인
+
+RAG는 **인덱싱 파이프라인**과 **쿼리 파이프라인** 두 단계로 나뉜다.
+
+**인덱싱 파이프라인 (문서 추가 시 1회 실행):**
+
+```mermaid
+graph LR
+    A[Markdown 문서] --> B[Chunking\n500토큰 단위]
+    B --> C[Embedding Model\n텍스트 → 벡터]
+    C --> D[Vector DB\nChromaDB 저장]
+```
+
+**쿼리 파이프라인 (질문마다 실행):**
+
+```mermaid
+graph LR
+    E[User 질문] --> F[Embedding\n질문 → 벡터]
+    F --> G[Vector DB\n유사도 검색 Top K]
+    G --> H[관련 청크 N개 추출]
+    H --> I[LLM Prompt 조합\n질문 + 청크들]
+    I --> J[LLM\nQwen / DeepSeek]
+    J --> K[내 문서 기반 답변]
+```
+
+실제 LLM에 전달되는 프롬프트는 아래 구조다.
+
+```text
+[System Prompt]
+너는 인프라 엔지니어 AI다. 아래 문서를 참고해서 답변해라.
+
+[Retrieved Context]
+--- 문서 1: efs-session-lock-rca.md (Chunk 3) ---
+EFS 기반 PHP Session File Lock 경합으로 인해 Apache Worker가
+반환되지 못하고 누적되면서...
+
+--- 문서 2: valkey-session-migration.md (Chunk 2) ---
+ElastiCache Valkey Serverless를 생성하면 아래와 같은 리소스가...
+
+[User Question]
+Apache Worker 고갈 장애의 근본 원인이 뭐였지?
+```
+
+LLM은 이 전체를 한 번에 받아서 답변한다. 문서 기반으로 답하기 때문에 내가 작성한 RCA의 실제 내용을 인용해서 답변하게 된다.
+
+#### RAG 실제 동작 예시
+
+내 Obsidian Vault에 아래 문서가 있다고 하자.
 
 ```text
 2026-07-10-apache-worker-exhaustion-rca.md
@@ -194,19 +395,109 @@ graph TD
 Apache Worker 고갈 장애의 근본 원인이 뭐였지?
 ```
 
-RAG가 없다면 LLM은 일반론으로 답한다.
+**RAG 없이 LLM만 사용한 경우:**
 
-RAG가 있다면 먼저 내 RCA 문서를 검색하고, 그 내용을 기준으로 답한다.
+```text
+Apache Worker 고갈의 일반적인 원인은 다음과 같습니다.
+1. MaxRequestWorkers 설정 부족
+2. 슬로우 백엔드 응답
+3. 메모리 부족
+...
+```
+
+일반론이다. 우리 환경의 실제 원인을 모른다.
+
+**RAG 포함 시:**
+
+```text
+2026-07-10 RCA 문서에 따르면, 이번 장애의 근본 원인은
+EFS 기반 PHP Session File Lock 경합입니다.
+
+session_start() 호출 시 NFS Exclusive Lock이 발생하고,
+EFS 특성상 Lock 하나가 네트워크 RTT를 수반하므로
+Apache Worker가 Lock 대기 상태에서 반환되지 못했습니다.
+
+apache2 프로세스가 1652개까지 증가했고, OOM이 발생했습니다.
+
+근본 해결책으로는 ElastiCache Valkey로 Session Backend를
+전환하는 방안이 검토 중입니다.
+```
+
+내가 작성한 RCA 문서의 내용을 그대로 인용해서 답한다.
 
 즉, 중요한 차이는 아래와 같다.
 
 ```text
 LLM only
   = 일반 지식 기반 답변
+  = Knowledge Cutoff 이후 정보 없음
+  = 내 환경의 맥락 없음
 
 LLM + RAG
   = 내 문서 기반 답변
+  = 최신 운영 기록 반영
+  = 우리 환경의 실제 맥락으로 답변
 ```
+
+---
+
+### 3.3 Fine-tuning vs RAG — 왜 RAG를 선택하는가
+
+LLM에 내 지식을 반영하는 방법은 두 가지다.
+
+**Fine-tuning (파인튜닝):**
+
+```text
+내 데이터로 모델을 재학습시키는 방식
+  → 모델 자체의 가중치(weight)가 변경됨
+  → GPU 서버 필요 (A100 수십 시간)
+  → 비용: 수십만 원 ~ 수백만 원
+  → 데이터 업데이트 시 재학습 필요
+  → 모델이 특정 도메인에 과적합될 위험
+```
+
+**RAG:**
+
+```text
+모델은 그대로 두고 질문 시 문서를 주입하는 방식
+  → 모델 가중치 변경 없음
+  → GPU 불필요 (CPU + RAM으로 가능)
+  → 비용: 거의 없음 (로컬 실행 시)
+  → 문서 추가/수정이 즉시 반영됨
+  → 문서가 있는 한 최신 정보 유지
+```
+
+인프라 엔지니어 업무 특성상 RAG가 훨씬 적합하다.
+
+```text
+Fine-tuning이 적합한 경우:
+  - 특정 코드 스타일을 학습시키고 싶을 때
+  - 특정 언어/도메인 전용 모델이 필요할 때
+  - 대규모 기업 내부 언어 패턴 학습
+
+RAG가 적합한 경우:
+  - 운영 문서가 자주 업데이트될 때 ← 우리 상황
+  - 최신 RCA/Runbook을 즉시 반영해야 할 때 ← 우리 상황
+  - 개인 장비에서 돌아야 할 때 ← 우리 상황
+  - 비용 없이 실험하고 싶을 때 ← 우리 상황
+```
+
+---
+
+### 3.4 로컬 LLM vs 클라우드 LLM
+
+외부 API를 쓰면 더 좋은 모델을 쓸 수 있는데 굳이 로컬을 쓰는 이유가 있다.
+
+| 항목 | 클라우드 LLM (GPT, Claude) | 로컬 LLM (Ollama) |
+|---|---|---|
+| 모델 품질 | 훨씬 높음 | 7B~8B 수준 |
+| 보안 | 데이터가 외부 서버로 전송 | 완전 로컬, 데이터 유출 없음 |
+| 비용 | 토큰당 과금 | 무료 (전기세만) |
+| 인터넷 | 필요 | 불필요 |
+| 지연 | 네트워크 의존 | 로컬 처리 속도 |
+| 업무 문서 | 회사 보안 정책상 사용 불가 | 민감 문서 자유롭게 사용 |
+
+특히 마지막 항목이 결정적이다. Terraform 코드, RCA 문서, 운영 절차서를 ChatGPT에 그대로 넣는 것은 대부분의 회사에서 보안 정책 위반이다. 로컬 LLM은 네트워크를 전혀 타지 않으므로 이 문제가 없다.
 
 ---
 
