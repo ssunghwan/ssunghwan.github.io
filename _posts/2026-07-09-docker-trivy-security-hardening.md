@@ -1,5 +1,5 @@
 ---
-title: "EKS Container / CI Security Hardening — Switching Dockerfiles to non-root, standardizing on Trivy, and implementing IaC scanning."
+title: "EKS Container/CI Security Hardening — Switching Dockerfiles to non-root, standardizing on Trivy, and implementing IaC scanning."
 date: 2026-07-09 09:00:00 +0900
 categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
 tags: [eks, docker, trivy, security, non-root, securitycontext, iac, dependabot, github-actions, cve, supply-chain]
@@ -1240,7 +1240,7 @@ $ git branch -a
 
 원인은 GitHub의 경로 필터가 평가하는 단위에 있었다. GitHub Actions의 `paths:` 필터는
 **푸시 하나에 포함된 모든 커밋을 합친 변경 파일 목록**을 기준으로 판단한다 — 커밋
-하나하나를 따로 보는 게 아니다. 이 저장소는 [`2026-06-25-argocd-image-updater-and-ci-security.md`](./2026-06-25-argocd-image-updater-and-ci-security.md)에서
+하나하나를 따로 보는 게 아니다. 이 저장소는 [ArgoCD Image Updater 도입 + GitHub App HTTPS 전환 + CI 보안 강화](/posts/image-updater-github-app-ci-security/)에서
 도입한 ArgoCD Image Updater가 새 이미지를 배포할 때마다 `kubernetes/apps/kustomization.yaml`
 (이미지 태그 참조 한 줄)에 **직접 `main`으로 커밋**을 남긴다. 사람이 로컬에서 작업하다
 `git fetch`/`git pull --rebase`로 그 커밋을 받아 자신의 변경과 함께 `git push`하면, 그
