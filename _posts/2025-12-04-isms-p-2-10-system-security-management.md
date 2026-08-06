@@ -1,7 +1,7 @@
 ---
-title: "보호대책 요구사항 - 2.10 시스템 및 서비스 보안관리"
+title: "서비스 보안, 어디까지 통제해야 하나 - 2.10 시스템 및 서비스 보안관리"
 date: 2025-12-04 15:57:00 +0900
-categories: [Compliance & Vulnerability, ISMS-P]
+categories: [Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 보안시스템, 클라우드보안, 공개서버, 패치관리, 악성코드, 단말기보안, 개인정보보호법]
 ---
 

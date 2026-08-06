@@ -1,7 +1,7 @@
 ---
-title: "Building a PLG Monitoring Stack (Prometheus + Loki + Grafana)"
+title: "관측의 시작, 직접 쌓는 모니터링 - Prometheus, Loki, Grafana(PLG) 스택 구축기"
 date: 2026-05-28 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Operations]
 tags: [eks, prometheus, loki, grafana, promtail, plg, monitoring, karpenter, irsa, s3, ebs-csi]
 ---
 

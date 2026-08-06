@@ -1,7 +1,7 @@
 ---
-title: "Adopting Stakater Reloader — Automatic Rolling Restart of Pods on Secret/ConfigMap Changes"
+title: "패스워드는 바뀌었는데 파드는 몰랐다 - Stakater Reloader로 해결한 자동 롤링 재시작"
 date: 2026-07-06 09:00:00 +0900
-categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
+categories: [Kubernetes, Cloud Native Transformation"]
 tags: [eks, kubernetes, reloader, external-secrets, eso, argocd, secret-rotation, rds, gitops, prometheus]
 ---
 

@@ -1,7 +1,7 @@
 ---
-title: "Terraform Infrastructure Setup to Karpenter Configuration"
+title: "바닥부터 쌓아올린 EKS - Terraform부터 Karpenter까지"
 date: 2026-05-12 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [eks, terraform, aws, kubernetes, gitops, karpenter, nodepool, iac, irsa, pod-identity]
 ---
 

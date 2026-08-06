@@ -1,7 +1,7 @@
 ---
-title: "EKS Container/CI Security Hardening — Switching Dockerfiles to non-root, standardizing on Trivy, and implementing IaC scanning."
+title: "컨테이너를 root로 돌리지 말자 - non root Dockerfile, Trivy, IaC 스캔으로 조인 EKS 보안"
 date: 2026-07-09 09:00:00 +0900
-categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
+categories: [Kubernetes, Application
 tags: [eks, docker, trivy, security, non-root, securitycontext, iac, dependabot, github-actions, cve, supply-chain]
 mermaid: true
 ---

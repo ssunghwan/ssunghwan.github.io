@@ -1,7 +1,7 @@
 ---
-title: "ALBC, ESO, and ArgoCD GitOps pipeline configuration and Pod Identity migration"
+title: "GitOps 파이프라인의 뼈대를 세우다 - ALBC부터 ArgoCD와 Pod Identity 전환"
 date: 2026-05-20 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [aws, eks, albc, argocd, external-secrets, gitops, kubernetes, helm, irsa, eso, pod-identity]
 ---
 

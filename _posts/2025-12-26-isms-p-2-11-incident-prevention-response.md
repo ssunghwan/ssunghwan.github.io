@@ -1,7 +1,7 @@
 ---
-title: "보호대책 요구사항 - 2.11 사고 예방 및 대응"
+title: "사고는 막고, 터지면 대응한다 - 2.11 사고 예방 및 대응"
 date: 2025-12-26 16:13:00 +0900
-categories: [Compliance & Vulnerability, ISMS-P]
+categories: [Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 침해사고, 취약점점검, 이상행위, 모니터링, siem, 개인정보보호법, 정보통신망법]
 ---
 

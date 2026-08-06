@@ -1,7 +1,7 @@
 ---
-title: "Apache Worker Exhaustion Caused by EFS-based PHP Session Locking and Migration to ElastiCache Valkey"
+title: "트래픽이 몰리자 서버가 멈췄다 - EFS 세션 Lock이 부른 Apache 워커 고갈, Valkey 전환 고민"
 date: 2026-07-10 09:00:00 +0900
-categories: [Infrastructure, "Root Cause Analysis"]
+categories: [Cloud & Infrastructure, "Troubleshooting"]
 tags: [php, apache, mod-php, efs, session, session-lock, elasticache, valkey, redis, rca, legacy, aws]
 mermaid: true
 ---

@@ -1,7 +1,7 @@
 ---
-title: "보호대책 요구사항 - 2.9 시스템 및 서비스 운영관리"
+title: "운영의 빈틈을 메우는 관리 체계 - 2.9 시스템 및 서비스 운영관리"
 date: 2025-11-28 14:37:00 +0900
-categories: [Compliance & Vulnerability, ISMS-P]
+categories: [Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 변경관리, 장애관리, 백업, 로그관리, 시간동기화, 폐기, 개인정보보호법, 정보통신망법]
 ---
 

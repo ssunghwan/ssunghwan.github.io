@@ -1,7 +1,7 @@
 ---
-title: "보호대책 요구사항 - 2.7 암호화 적용"
+title: "데이터를 지키는 마지막 방어선 - 2.7 암호화 적용"
 date: 2025-11-25 15:37:00 +0900
-categories: [Compliance & Vulnerability, ISMS-P]
+categories: [Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 암호화, 암호키관리, aes, tls, kms, 개인정보보호법, 정보통신망법]
 ---
 

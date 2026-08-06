@@ -1,7 +1,7 @@
 ---
-title: "Implementing SMS OTP Authentication on EKS — Integrating Valkey (Redis) for Processing and Storage"
+title: "문자 인증, 직접 만들어봤습니다 - EKS, Valkey 기반 SMS OTP 구축"
 date: 2026-06-24 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [eks, redis, valkey, solapi, sms, otp, elasticache, sentinel, ioredis, kubernetes, argocd]
 ---
 

@@ -1,7 +1,7 @@
 ---
-title: "보호대책 요구사항 - 2.6 접근 통제"
+title: "누가, 어디까지 접근할 수 있는가 - 2.6 접근 통제"
 date: 2025-11-24 17:39:00 +0900
-categories: [Compliance & Vulnerability, ISMS-P]
+categories: [Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 접근통제, 개인정보보호법, 정보통신망법, 네트워크보안]
 ---
 

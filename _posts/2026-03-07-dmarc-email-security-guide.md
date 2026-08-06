@@ -1,7 +1,7 @@
 ---
-title: "Email Tamper Prevention Guide Using DMARC"
+title: "당신 회사 이름으로 스팸이 날아간다면? - DMARC로 막는 이메일 위,변조"
 date: 2026-03-07 03:49:00 +0900
-categories: [Compliance & Vulnerability, Application & Network]
+categories: [Security & Compliance, Hardening]
 tags: [dmarc, spf, dkim, email security]
 ---
 

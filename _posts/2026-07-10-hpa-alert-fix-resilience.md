@@ -1,7 +1,7 @@
 ---
-title: "Enhancing EKS Workload Resilience and Analyzing Incidents Skewed Toward Specific Availability Zones"
+title: "파드가 한쪽 AZ로만 쏠렸다 - EKS 워크로드 복원력과 AZ 편중 사고 분석"
 date: 2026-07-09 09:00:00 +0900
-categories: [Kubernetes, "Legacy PHP eCommerce - EKS Migration"]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [eks, hpa, karpenter, pdb, graceful-shutdown, topologyspreadconstraints, consolidation, az, kubernetes]
 ---
 

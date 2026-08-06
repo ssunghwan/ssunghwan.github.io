@@ -1,7 +1,7 @@
 ---
-title: "Disk Memory failure after EFS deletion"
+title: "EFS를 지웠더니 Disk가 죽었다."
 date: 2026-01-26 01:16:00 +0900
-categories: [Infrastructure, Root Cause Analysis]
+categories: [Cloud & Infrastructure, Troubleshooting]
 tags: [aws, efs, disk, stunnel]
 ---
 

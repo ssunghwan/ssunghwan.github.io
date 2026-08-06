@@ -1,7 +1,7 @@
 ---
-title: "Adoption of ArgoCD Image Updater + Switch to GitHub App HTTPS + Strengthening CI Security"
+title: "git push로 배포하던 시대의 끝 - ArgoCD Image Updater 전환기"
 date: 2026-06-25 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [eks, argocd, image-updater, github-app, gitops, cicd, trivy, ecr, kustomize, pod-identity, security]
 ---
 

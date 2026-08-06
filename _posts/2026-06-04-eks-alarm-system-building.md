@@ -1,7 +1,7 @@
 ---
-title: "Building a Production-Grade Alarm System for EKS E-commerce (Prometheus + AlertManager + Slack)"
+title: "알림이 울려야 장애를 안다 - Prometheus, AlertManager, Slack 알람 체계 구축기"
 date: 2026-06-04 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Operations]
 tags: [eks, prometheus, alertmanager, slack, loki, promtail, karpenter, hpa, external-secrets, monitoring, alerting]
 ---
 

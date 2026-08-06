@@ -1,7 +1,7 @@
 ---
-title: "AWS CloudTrail Based ISMS-P Real-Time Security Monitoring Setup Guide"
+title: "모든 행위를 기록하라 - CloudTrail로 만든 ISMSP 실시간 보안 감시 체계"
 date: 2026-04-30 00:00:00 +0900
-categories: [Compliance & Vulnerability, Application & Network]
+categories: [Security & Compliance, Hardening]
 tags: [aws, cloudtrail, cloudwatch, lambda, glue, athena, isms-p, kms, sns, eventbridge]
 ---
 

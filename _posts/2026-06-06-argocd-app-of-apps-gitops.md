@@ -1,7 +1,7 @@
 ---
-title: "Transitioning to ArgoCD App of Apps GitOps Architecture and Consolidating Orphaned Helm Releases"
+title: "흩어진 배포를 하나로 - ArgoCD App of Apps 아키텍처 전환"
 date: 2026-06-06 09:00:00 +0900
-categories: [Kubernetes, Legacy PHP eCommerce - EKS Migration]
+categories: [Kubernetes, Cloud Native Transformation]
 tags: [eks, argocd, gitops, app-of-apps, sync-wave, kubernetes, devops, iac, helm, multi-source, server-side-apply]
 ---
 
