@@ -1,7 +1,7 @@
 ---
 title: "이벤트 날에만 터지는 장애의 정체 - N+1 쿼리가 RDS를 무너뜨린 순간"
 date: 2026-02-23 03:59:00 +0900
-categories: [Cloud & Infrastructure, Troubleshooting]
+categories: [1. Cloud & Infrastructure, Troubleshooting]
 tags: [rds, database, n+1 query]
 ---
 

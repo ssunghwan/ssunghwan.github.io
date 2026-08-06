@@ -1,7 +1,7 @@
 ---
 title: "Part1: 로컬 AI 엔지니어 구축기"
 date: 2026-07-17 18:13:00 +0900
-categories: [AI & MLOps, Machine learning]
+categories: [4. AI & MLOps, Machine learning]
 tags: [ollama, qwen, deepseek, rag, open-webui, macbook, obsidian, terraform, eks, ai]
 mermaid: true
 pin: false

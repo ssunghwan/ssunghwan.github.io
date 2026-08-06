@@ -1,7 +1,7 @@
 ---
 title: "CloudFront, 잘못 쓰면 이렇게 터질 수 있다."
 date: 2026-01-27 01:51:00 +0900
-categories: [Cloud & Infrastructure, Troubleshooting]
+categories: [1. Cloud & Infrastructure, Troubleshooting]
 tags: [aws, cloudfront, cdn, cache, cache-policy, origin-request-policy]
 ---
 

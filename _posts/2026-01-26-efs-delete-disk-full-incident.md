@@ -1,7 +1,7 @@
 ---
 title: "EFS를 지웠더니 Disk가 죽었다."
 date: 2026-01-26 01:16:00 +0900
-categories: [Cloud & Infrastructure, Troubleshooting]
+categories: [1. Cloud & Infrastructure, Troubleshooting]
 tags: [aws, efs, disk, stunnel]
 ---
 

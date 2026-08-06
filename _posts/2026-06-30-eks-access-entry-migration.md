@@ -1,7 +1,7 @@
 ---
 title: "낡은 EKS 인증 방식을 걷어내고 - EKS aws-auth ConfigMap에서 Access Entry로 전환기"
 date: 2026-06-30 09:00:00 +0900
-categories: [Kubernetes, Cloud Native Transformation]
+categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [eks, aws-auth, access-entry, iam, terraform, kubernetes, security, rbac, cloudtrail]
 ---
 

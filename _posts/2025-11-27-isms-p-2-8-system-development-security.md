@@ -1,7 +1,7 @@
 ---
 title: "개발 단계부터 보안을 심는 법 - 2.8 정보시스템 도입 및 개발 보안"
 date: 2025-11-27 11:32:00 +0900
-categories: [Security & Compliance, ISMS-P]
+categories: [3. Security & Compliance, ISMS-P]
 tags: [isms-p, isms, 개발보안, 보안요구사항, 취약점점검, 형상관리, 개인정보보호법, 정보통신망법]
 ---
 

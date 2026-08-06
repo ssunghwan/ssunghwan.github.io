@@ -1,7 +1,7 @@
 ---
 title: "하루 만에 갈아엎은 모니터링 스택 - Grafana, Alloy, Slack 알림 표준화"
 date: 2026-06-30 09:00:00 +0900
-categories: [Kubernetes, Operations]
+categories: [2. Kubernetes, Operations]
 tags: [eks, grafana, prometheus, loki, alloy, alertmanager, slack, karpenter, valkey, arc, monitoring]
 ---
 

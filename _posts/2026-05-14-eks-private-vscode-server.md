@@ -1,7 +1,7 @@
 ---
 title: "닫힌 클러스터 안에서 코딩하기 - Private EKS용 VSCode Server 구축 가이드"
 date: 2026-05-14 18:00:00 +0900
-categories: [Kubernetes, Operations]
+categories: [2. Kubernetes, Operations]
 tags: [eks, vscode-server, private-endpoint, terraform, ssm, secrets-manager, aws, vpc-endpoint]
 ---
 

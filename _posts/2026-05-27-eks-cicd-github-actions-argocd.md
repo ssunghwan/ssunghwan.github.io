@@ -1,7 +1,7 @@
 ---
 title: "코드들이 알아서 자동으로 배포되게 하기 - GitHub Actions, ArgoCD의 파이프라인 구축기"
 date: 2026-05-27 09:00:00 +0900
-categories: [Kubernetes, Cloud Native Transformation]
+categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [eks, argocd, gitops, github-actions, cicd, alb, karpenter, hpa, oidc, dex, oauth]
 ---
 

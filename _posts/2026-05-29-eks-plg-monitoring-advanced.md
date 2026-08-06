@@ -1,7 +1,7 @@
 ---
 title: "모니터링, 한 단계 더 - PLG 스택 고도화: 데쉬보드, 알림, BlackBox"
 date: 2026-05-29 09:00:00 +0900
-categories: [Kubernetes, Operations]
+categories: [2. Kubernetes, Operations]
 tags: [eks, prometheus, loki, grafana, alertmanager, slack, blackbox, plg, monitoring, albc, volumesnapshot]
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "내 클러스터 안에 러너를 심다 - EKS에서 GitHub Actions self-hosting 운영"
 date: 2026-06-25 09:00:00 +0900
-categories: [Kubernetes, Operations]
+categories: [2. Kubernetes, Operations]
 tags: [eks, arc, github-actions, self-hosted-runner, gitops, argocd, github-apps, kubernetes, pod-identity, terraform]
 mermaid: true
 ---

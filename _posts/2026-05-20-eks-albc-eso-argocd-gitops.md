@@ -1,7 +1,7 @@
 ---
 title: "GitOps 파이프라인의 뼈대를 세우다 - ALBC부터 ArgoCD와 Pod Identity 전환"
 date: 2026-05-20 09:00:00 +0900
-categories: [Kubernetes, Cloud Native Transformation]
+categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [aws, eks, albc, argocd, external-secrets, gitops, kubernetes, helm, irsa, eso, pod-identity]
 ---
 

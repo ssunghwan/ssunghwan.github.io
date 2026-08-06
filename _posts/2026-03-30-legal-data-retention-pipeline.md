@@ -1,7 +1,7 @@
 ---
 title: "법이 요구하는 데이터를 남기는 법 - ISMSP 대응 주문,결제 보존 파이프라인"
 date: 2026-03-30 00:00:00 +0900
-categories: [Security & Compliance, Hardening]
+categories: [3. Security & Compliance, Hardening]
 tags: [aws, lambda, s3, glacier, eventbridge, sns, secrets-manager, rds, isms-p]
 ---
 

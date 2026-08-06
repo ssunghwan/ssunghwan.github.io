@@ -1,7 +1,7 @@
 ---
 title: "비밀번호를 사람이 바꾸지 마라 - Secrets Manager RDS 자동 로테이션 구축기"
 date: 2026-04-23 00:00:00 +0900
-categories: [Security & Compliance, Hardening]
+categories: [3. Security & Compliance, Hardening]
 tags: [aws, secrets-manager, rds, rotation, lambda, kms]
 ---
 

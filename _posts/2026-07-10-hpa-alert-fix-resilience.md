@@ -1,7 +1,7 @@
 ---
 title: "파드가 한쪽 AZ로만 쏠렸다 - EKS 워크로드 복원력과 AZ 편중 사고 분석"
 date: 2026-07-09 09:00:00 +0900
-categories: [Kubernetes, Cloud Native Transformation]
+categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [eks, hpa, karpenter, pdb, graceful-shutdown, topologyspreadconstraints, consolidation, az, kubernetes]
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "애플리케이션을 컨테이너에 담다 - 인프라 구성과 앱 패키징의 첫 단추"
 date: 2026-05-07 00:00:00 +0900
-categories: [Kubernetes, Application]
+categories: [2. Kubernetes, Application]
 tags: [docker, php-fpm, apache, tomcat, aws, eks, argocd, opentofu, gitops, aurora, elasticache, karpenter]
 mermaid: true
 ---

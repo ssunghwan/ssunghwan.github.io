@@ -1,7 +1,7 @@
 ---
 title: "범인은 초당 호출 수였다 - Secrets Manager ThrottlingException 추적기"
 date: 2026-04-24 00:00:00 +0900
-categories: [Cloud & Infrastructure, Troubleshooting]
+categories: [1. Cloud & Infrastructure, Troubleshooting]
 tags: [aws, secrets-manager, throttling, rca, php, apcu, imdsv2, mod-php, php-fpm, sigv4]
 ---
 

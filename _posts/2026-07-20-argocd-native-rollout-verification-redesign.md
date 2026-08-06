@@ -1,7 +1,7 @@
 ---
 title: "배포 성공인데 왜 실패라고 뜨지? - 세 번 연속 오탐, ArgoCD 검증 로직을 재설계하다."
 date: 2026-07-20 09:00:00 +0900
-categories: [Kubernetes, Cloud Native Transformation]
+categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [argocd, image-updater, gitops, github-actions, ci-cd, docker, ecr, rollout, rbac, eks, smoke-test]
 mermaid: true
 ---

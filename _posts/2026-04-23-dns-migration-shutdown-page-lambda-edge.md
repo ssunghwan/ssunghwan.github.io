@@ -1,7 +1,7 @@
 ---
 title: "서버가 죽어도 공지는 떠야한다 - CloudFront+S3+Lambda로 만든 무중단 점검 페이지"
 date: 2026-04-23 00:00:00 +0900
-categories: [Cloud & Infrastructure, Architecture]
+categories: [1. Cloud & Infrastructure, Architecture]
 tags: [aws, cloudfront, lambda-edge, s3, dns, route53, waap]
 ---
 
