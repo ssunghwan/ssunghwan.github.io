@@ -1,7 +1,7 @@
 ---
 title: "Dependabot은 하나가 아니다 - GitHub 보안 업데이트 3계층 모델과 운영 사각지대 제거"
 date: 2026-07-20 09:00:00 +0900
-categories: [Kubernetes, Operations]
+categories: [2. Kubernetes, Operations]
 tags: [dependabot, github, security, docker, composer, terraform, github-actions, php, eks, supply-chain, cve]
 mermaid: true
 ---
@@ -42,28 +42,32 @@ mermaid: true
 ```mermaid
 flowchart TD
     subgraph L1["계층 1 — Dependabot alerts (저장소 설정값)"]
-        DG["Dependency graph\n저장소 매니페스트 자동 파싱"]
-        GHSA["GitHub Advisory Database\nNVD + 각 생태계 보안 채널 동기화"]
-        ALERT["취약점 alert 생성\nSecurity 탭 표시 + 알림"]
+        direction TB
+        DG["Dependency graph<br/>저장소 매니페스트 자동 파싱"]
+        GHSA["GitHub Advisory Database<br/>NVD + 각 생태계 보안 채널 동기화"]
+        ALERT["취약점 alert 생성<br/>Security 탭 표시 + 알림"]
         DG -->|"버전 대조"| GHSA
         GHSA -->|"CVE 공시 즉시"| ALERT
     end
 
     subgraph L2["계층 2 — Dependabot security updates (저장소 설정값)"]
-        PR_SEC["보안 패치 PR 자동 생성\n최소 변경 버전 계산\npatch → minor → major 우선순위"]
-        ALERT -->|"alert 생성 즉시\nschedule과 무관"| PR_SEC
+        direction TB
+        PR_SEC["보안 패치 PR 자동 생성<br/>최소 변경 버전 계산<br/>patch → minor → major 우선순위"]
     end
 
     subgraph L3["계층 3 — Dependabot version updates (.github/dependabot.yml)"]
-        SCHED["schedule에 따라 실행\nweekly / daily"]
-        PR_VER["일반 최신화 PR 생성\n보안 무관 버전업 포함"]
+        direction TB
+        SCHED["schedule에 따라 실행<br/>weekly / daily"]
+        PR_VER["일반 최신화 PR 생성<br/>보안 무관 버전업 포함"]
         SCHED -->|"weekly 등 주기"| PR_VER
     end
 
     subgraph CI["기존 CI 파이프라인"]
-        GATE["Trivy 이미지 스캔\ncomposer audit\nTerraform validate"]
+        direction TB
+        GATE["Trivy 이미지 스캔<br/>composer audit<br/>Terraform validate"]
     end
 
+    ALERT -->|"alert 생성 즉시<br/>schedule과 무관"| PR_SEC
     PR_SEC -->|"머지 시 기존 CI 발동"| CI
     PR_VER -->|"머지 시 기존 CI 발동"| CI
 

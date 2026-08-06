@@ -4,7 +4,7 @@ icon: fas fa-info-circle
 order: 4
 ---
 
-## 👋 Undefined Engineer, SungHwan Heo
+## 👋 Welcome to the SungHwan, Information Technology Blog.
 
 > 무언가에 얽매이지 않고, 클라우드로 시작해 모든 인프라를 습득하길 갈망하는 욕심 많은 엔지니어입니다.<br>
 > 현재 외국계 기업에서 **IT Cloud Engineer** 직무를 맡고 있으며, AWS · Azure 벤더 중심으로 운영하고 있습니다.
@@ -42,8 +42,9 @@ order: 4
   - eCommerce 플랫폼 인프라 운영 및 보안 강화
   - Global Organizations (Control Tower) 환경으로 마이그레이션 담당
   - ISMS-P 인증 심사 대응
-  - AWS Legacy Infra → EKS 신규 구축(Cloud Native Transformation) 프로젝트 책임
-- Global Organization Compliance를 준수한 Kubernetes 내부 설계
+- AWS Legacy Infra → EKS 신규 구축(Cloud Native Transformation) 프로젝트 책임
+  - Global Organization Compliance를 준수한 Kubernetes 내부 설계
+  - GitOps 엔지니어링 아키텍처 설계
 
 **Network Engineer** | 팀원 | 2021.06 ~ 2023.07
 
@@ -65,7 +66,7 @@ order: 4
 
 ## 📋 Blog Categories
 
-블로그 글은 **플랫폼(어디서 도는가)** 기준으로 대분류하고, 세부 성격은 태그로 관리합니다.
+블로그 글은 **플랫폼** 기준으로 대분류하고, 세부 성격은 태그로 관리합니다.
 
 ### ☁️ Cloud & Infra
 > EC2 · RDS · CloudFront · EFS 등 클래식 클라우드 인프라
