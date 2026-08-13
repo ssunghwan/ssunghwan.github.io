@@ -6,9 +6,9 @@ tags: [Valkey, EKS, Kubernetes, NetworkPolicy, Velero, AWS, Terraform, SecretsMa
 mermaid: true
 ---
 
-> **환경**: EKS `<prefix>` 클러스터, Valkey(Bitnami Helm, Sentinel HA), Velero, AWS Secrets Manager, External Secrets Operator, VPC CNI NetworkPolicy, Terraform
+> **환경**: EKS 클러스터, Valkey(Bitnami Helm, Sentinel HA), Velero, AWS Secrets Manager, External Secrets Operator, VPC CNI NetworkPolicy, Terraform
 >
-> 세션 저장소(Valkey)를 무인증 구조에서 **인증 + 네트워크 격리 + 백업/DR**을 갖춘 심층방어(defense-in-depth) 구조로 확장했다.
+> 세션 저장소를 무인증 구조에서 **인증 + 네트워크 격리 + 백업/DR**을 갖춘 심층방어(defense-in-depth) 구조로 확장했다.
 >
 > 이 글은 `requirepass` 도입 설계부터 NetworkPolicy, 세션 쿠키 보안 옵션, Velero 기반 백업/DR까지 이번에 새로 설계하고 구축한 4가지 영역을 A-Z로 정리한다.
 
