@@ -3,6 +3,7 @@ title: "문자 인증, 직접 만들어봤습니다 - EKS, Valkey 기반 SMS OTP
 date: 2026-06-24 09:00:00 +0900
 categories: [2. Kubernetes, Cloud Native Transformation]
 tags: [eks, redis, valkey, solapi, sms, otp, elasticache, sentinel, ioredis, kubernetes, argocd]
+mermaid: true
 ---
 
 > 회원가입 플로우에 휴대폰 본인 인증(SMS OTP)을 도입하는 작업이다.<br>
