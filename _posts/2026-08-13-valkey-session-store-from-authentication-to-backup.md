@@ -1,6 +1,6 @@
 ---
 title: "Valkey 세션 저장소, 인증부터 백업까지 - 심층방어 아키텍처로 확장하기"
-date: 2026-08-13 09:00:00 +0900
+date: 2026-08-13 00:00:00 +0900
 categories: [2. Kubernetes, Operations]
 tags: [Valkey, EKS, Kubernetes, NetworkPolicy, Velero, AWS, Terraform, SecretsManager, GitOps, Security]
 mermaid: true
