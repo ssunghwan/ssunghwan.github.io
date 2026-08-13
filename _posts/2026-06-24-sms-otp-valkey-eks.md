@@ -711,16 +711,16 @@ git commit -m "feat: add ioredis dependency"
 
 Valkey는 두 곳에 동시에 데이터를 저장한다.
 
-```
-[api] → redis.setex("otp:010...", 180, "382941")
-                    ↓
-         ┌──────────────────────────┐
-         │      Valkey 파드 내부    │
-         │                          │
-         │  ① RAM (메모리)          │ ← 모든 읽기/쓰기 (us 단위 응답)
-         │        ↓ 주기적 스냅샷   │
-         │  ② EBS gp3 디스크        │ ← /bitnami/valkey/data/dump.rdb
-         └──────────────────────────┘
+```mermaid
+flowchart TD
+    A["API 서버<br/>SETEX otp:010... 180 382941"] --> B
+
+    subgraph B["Valkey 파드 내부"]
+        direction TB
+        C["① RAM (메모리)<br/><sub>모든 읽기/쓰기 · us 단위 응답"]
+        D["② EBS gp3 디스크<br/><sub>/bitnami/valkey/data/dump.rdb"]
+        C -->|주기적 스냅샷| D
+    end
 ```
 
 **① RAM** — 실제 서빙 레이어. 모든 `GET`/`SET` 명령이 메모리에서 처리된다. Valkey가 빠른 이유다.
@@ -830,19 +830,11 @@ await redis.del(`cart:${userId}`);
 
 ### 후속 작업
 
-> **1단계: SCP 예외 신청**<br>
-> `elasticache:CreateReplicationGroup`, `DescribeReplicationGroups`, `DeleteReplicationGroup`, `ModifyReplicationGroup` 허용 요청
-{: .prompt-info }
-
-> **2단계: SCP 승인 시 ElastiCache 마이그레이션**<br>
-> `terraform apply` → endpoint 확인 → `REDIS_SENTINEL_HOSTS` 제거 + `REDIS_URL` 추가 → `helm uninstall valkey`
-{: .prompt-tip }
-
-> **3단계: Toss Payments 결제 API 개발**<br>
+> **1단계: Toss Payments 결제 API 개발**<br>
 > Redis와 독립적으로 진행 가능. 재고 감소 로직의 atomic INCR/DECR은 Redis 연동 후 고도화 예정.
 {: .prompt-tip }
 
-> **4단계: 카카오/네이버 소셜 로그인 (간편 로그인) 도입**<br>
+> **2단계: 카카오/네이버 소셜 로그인 (간편 로그인) 도입**<br>
 > OAuth 2.0 Authorization Code Flow 기반으로 구현 예정.<br>
 > 카카오 로그인: `https://kauth.kakao.com/oauth/authorize` → callback → JWT 발급<br>
 > 네이버 로그인: `https://nid.naver.com/oauth2.0/authorize` → callback → JWT 발급<br>
