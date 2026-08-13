@@ -1,12 +1,16 @@
 ---
-title: "세션 저장소를 자물쇠로 잠구다 - Valkey 인증/격리 + Velero 백업 설계"
-date: 2026-07-23
-categories: [2. Kubernetes, Cloud Native Transformation]
+title: "Valkey 세션 저장소, 인증부터 백업까지 - 심층방어 아키텍처로 확장하기"
+date: 2026-08-13 09:00:00 +0900
+categories: [2. Kubernetes, Operations]
 tags: [Valkey, EKS, Kubernetes, NetworkPolicy, Velero, AWS, Terraform, SecretsManager, GitOps, Security]
+mermaid: true
 ---
 
 > **환경**: EKS `<prefix>` 클러스터, Valkey(Bitnami Helm, Sentinel HA), Velero, AWS Secrets Manager, External Secrets Operator, VPC CNI NetworkPolicy, Terraform
-> 세션 저장소(Valkey)를 무인증 구조에서 **인증 + 네트워크 격리 + 백업/DR**을 갖춘 심층방어(defense-in-depth) 구조로 확장했다. 이 글은 `requirepass` 도입 설계부터 NetworkPolicy, 세션 쿠키 보안 옵션, Velero 기반 백업/DR까지 이번에 새로 설계하고 구축한 4가지 영역을 A-Z로 정리한다.
+>
+> 세션 저장소(Valkey)를 무인증 구조에서 **인증 + 네트워크 격리 + 백업/DR**을 갖춘 심층방어(defense-in-depth) 구조로 확장했다.
+>
+> 이 글은 `requirepass` 도입 설계부터 NetworkPolicy, 세션 쿠키 보안 옵션, Velero 기반 백업/DR까지 이번에 새로 설계하고 구축한 4가지 영역을 A-Z로 정리한다.
 
 ## 목차
 
@@ -23,9 +27,15 @@ tags: [Valkey, EKS, Kubernetes, NetworkPolicy, Velero, AWS, Terraform, SecretsMa
 
 ## 1. 배경 — 왜 지금 보안 모델을 확장했나
 
-EKS 이커머스 운영 환경(레거시 PHP 웹 + Valkey 세션 저장소 + RDS + EKS)에서, 세션 저장소의 보안 모델을 한 단계 끌어올리기로 했다. Valkey에는 로그인 세션(`PHPREDIS_SESSION:*`)이 저장되는데, Valkey 자체는 처음엔 **무인증(`auth.enabled: false`)**으로 구성돼 있었다 — TCP로 접속만 되면 누구나 `GET`/`SET`/`FLUSHALL`까지 실행할 수 있는 구조였다.
+EKS 이커머스 운영 환경(레거시 PHP 웹 + Valkey 세션 저장소 + RDS + EKS)에서, 세션 저장소의 보안 모델을 한 단계 끌어올리기로 했다.
 
-세션 데이터(로그인 상태, 리프레시 토큰)는 ISMS-P 관점에서 개인정보에 준해 취급해야 하는 자산이다. Redis/Valkey 계열 스토어는 MySQL 같은 RDBMS와 달리 **사용자/권한 개념이 기본으로 꺼져 있다** — 그래서 "누구나 접속 가능"한 기본 구조를 "인증한 클라이언트만 접속 가능"한 구조로 명시적으로 설계하기로 했다.
+Valkey에는 로그인 세션(`PHPREDIS_SESSION:*`)이 저장되는데, Valkey 자체는 처음엔 **무인증(`auth.enabled: false`)**으로 구성돼 있었다.
+
+TCP로 접속만 되면 누구나 `GET`/`SET`/`FLUSHALL`까지 실행할 수 있는 구조였다.
+
+세션 데이터(로그인 상태, 리프레시 토큰)는 ISMS-P 관점에서 개인정보에 준해 취급해야 하는 자산이다.
+
+Redis/Valkey 계열 스토어는 MySQL 같은 RDBMS와 달리 **사용자/권한 개념이 기본으로 꺼져 있다.** 그래서 "누구나 접속 가능"한 기본 구조를 "인증한 클라이언트만 접속 가능"한 구조로 명시적으로 설계하기로 했다.
 
 이번 라운드에서 다룬 설계 범위는 세션 저장소 인증, 네트워크 격리, 쿠키 보안, 백업/DR 4가지다.
 
@@ -40,15 +50,23 @@ EKS 이커머스 운영 환경(레거시 PHP 웹 + Valkey 세션 저장소 + RDS
 
 > RDS 백업/HA 강화, WAF admin 경로 rate-limit, dev/prod 환경 분리는 이번 범위에 포함하지 않았다 — 현재는 개발계 환경 특성상 의도적으로 유지하고 있는 설정이며, 운영계 전환 시점에 별도로 설계할 예정이다.
 
-우선순위 판단 기준은 단순했다 — **개인정보(세션)에 직접 닿는 항목 먼저, 그리고 "지금 당장 사고가 나도 복구가 안 되는" 항목 먼저.** RDS 백업 미비도 심각하지만, 이번 라운드는 세션 저장소에 한정해 확실하게 끝내는 쪽을 택했다.
+우선순위 판단 기준은 단순했다.
+
+**개인정보(세션)에 직접 닿는 항목 먼저, 그리고 "지금 당장 사고가 나도 복구가 안 되는" 항목 먼저.** RDS 백업 미비도 심각하지만, 이번 라운드는 세션 저장소에 한정해 확실하게 끝내는 쪽을 택했다.
 
 ## 3. Valkey 인증(requirepass) 도입
 
 ### 3-1. 왜 인증을 기본값으로 설계했나
 
-무인증 상태에서는 같은 네임스페이스(`<prefix>-app-kr`)의 **아무 파드**나 Valkey에 접속해 다른 고객의 세션을 읽거나(`GET PHPREDIS_SESSION:xxx`), 세션을 강제로 만들어(`SET`) 로그인 상태를 위조하거나, `FLUSHALL`로 전체 세션을 지워 로그아웃 사태를 일으킬 수 있었다.
+무인증 상태에서는 같은 네임스페이스(`<prefix>-app-kr`)의 **아무 파드**나 Valkey에 접속할 수 있다.
 
-이건 "외부 침입자"만의 문제가 아니다 — 같은 클러스터에 배포된 **다른 애플리케이션의 취약점**이 뚫려도, 그 파드를 발판 삼아 세션 저장소까지 옆으로 이동(lateral movement)할 수 있다는 뜻이다. ISMS-P 심사에서 "개인정보처리시스템 접근 통제"를 볼 때 정확히 이 시나리오를 지적한다.
+- 다른 고객의 세션을 읽거나(`GET PHPREDIS_SESSION:xxx`)
+- 세션을 강제로 만들어(`SET`) 로그인 상태를 위조하거나
+- `FLUSHALL`로 전체 세션을 지워 로그아웃 사태를 일으킬 수 있었다
+
+이건 "외부 침입자"만의 문제가 아니다.
+
+같은 클러스터에 배포된 **다른 애플리케이션의 취약점**이 뚫려도, 그 파드를 발판 삼아 세션 저장소까지 옆으로 이동(lateral movement)할 수 있다는 뜻이다. ISMS-P 심사에서 "개인정보처리시스템 접근 통제"를 볼 때 정확히 이 시나리오를 지적한다.
 
 **목표**: Valkey 자체에 비밀번호(`requirepass`)를 걸어서, 비밀번호를 아는 클라이언트(레거시 PHP 앱, 모니터링 exporter)만 접속 가능하게 한다.
 
@@ -102,9 +120,19 @@ auth:
     key: valkey-password
 ```
 
-**왜 Secret이 2개인지**가 중요한 포인트다. K8s의 `Secret`은 **네임스페이스 스코프 리소스**다 — 한 네임스페이스에 만든 Secret을 다른 네임스페이스의 파드가 직접 참조할 수 없다. redis-exporter는 `monitoring` 네임스페이스에서 뜨기 때문에, 같은 Secrets Manager 값을 `monitoring` 네임스페이스에도 별도로 동기화해야 했다. 둘 다 **같은 AWS Secrets Manager 시크릿**을 가리키므로, 비밀번호가 로테이션되면 두 네임스페이스 모두 1시간 안에 자동 갱신된다.
+**왜 Secret이 2개인지**가 중요한 포인트다.
 
-> **보완 — 왜 하필 1시간인가?** External Secrets Operator의 `refreshInterval`은 폴링 주기이지 실시간 반영이 아니다. 값을 지금 당장 바꿔야 하는 사고 대응 상황(예: 비밀번호 유출 의심)이라면 1시간을 기다릴 게 아니라 `kubectl annotate externalsecret <이름> force-sync=$(date +%s) --overwrite`처럼 강제 리싱크 트리거를 걸거나, ESO가 지원하는 webhook 기반 즉시 동기화를 검토하는 게 맞다. 이번 작업 범위에는 없었지만 로테이션 절차를 문서화할 때 같이 정리할 부분이다.
+K8s의 `Secret`은 **네임스페이스 스코프 리소스**다 — 한 네임스페이스에 만든 Secret을 다른 네임스페이스의 파드가 직접 참조할 수 없다. redis-exporter는 `monitoring` 네임스페이스에서 뜨기 때문에, 같은 Secrets Manager 값을 `monitoring` 네임스페이스에도 별도로 동기화해야 했다.
+
+둘 다 **같은 AWS Secrets Manager 시크릿**을 가리키므로, 비밀번호가 로테이션되면 두 네임스페이스 모두 1시간 안에 자동 갱신된다.
+
+> **보완 — 왜 하필 1시간인가?**
+>
+> External Secrets Operator의 `refreshInterval`은 폴링 주기이지 실시간 반영이 아니다.
+>
+> 값을 지금 당장 바꿔야 하는 사고 대응 상황(예: 비밀번호 유출 의심)이라면 1시간을 기다릴 게 아니라 `kubectl annotate externalsecret <이름> force-sync=$(date +%s) --overwrite`처럼 강제 리싱크 트리거를 걸거나, ESO가 지원하는 webhook 기반 즉시 동기화를 검토하는 게 맞다.
+>
+> 이번 작업 범위에는 없었지만 로테이션 절차를 문서화할 때 같이 정리할 부분이다.
 
 ### 3-5. PHP 클라이언트 코드 — 인증 추가 + 하위호환
 
@@ -142,7 +170,9 @@ ini_set('session.save_path', $savePath);
 1. **Sentinel 질의(①)** — "지금 마스터가 어디냐"를 묻는 질의. `auth.sentinel: true`로 Sentinel도 인증을 요구하게 만들었으니, `RedisSentinel` 생성자에도 `auth` 키로 비밀번호를 넘겨야 한다.
 2. **세션 read/write(②)** — 실제 `session_start()`가 내부적으로 호출하는 PHP 내장 redis 세션 핸들러. `session.save_path` 쿼리스트링에 `auth=<비밀번호>`를 붙이는 건 phpredis 확장이 지원하는 공식 문법이다.
 
-**왜 하위호환을 넣었나** — `REDIS_PASSWORD` 환경변수가 아직 주입되지 않은 환경(로컬 개발, 배포 순서가 꼬여 시크릿이 아직 안 만들어진 상태)에서는 이전과 100% 동일하게 무인증으로 동작한다. "코드 배포"와 "Valkey 인증 활성화"의 타이밍이 정확히 안 맞아도 최소한 요청이 죽지는 않는다(다만 완전히 안전하려면 결국 두 배포가 맞아떨어져야 한다 — 7장 참고).
+**왜 하위호환을 넣었나** — `REDIS_PASSWORD` 환경변수가 아직 주입되지 않은 환경(로컬 개발, 배포 순서가 꼬여 시크릿이 아직 안 만들어진 상태)에서는 이전과 100% 동일하게 무인증으로 동작한다.
+
+"코드 배포"와 "Valkey 인증 활성화"의 타이밍이 정확히 안 맞아도 최소한 요청이 죽지는 않는다(다만 완전히 안전하려면 결국 두 배포가 맞아떨어져야 한다 — 7장 참고).
 
 ### 3-6. Terraform 리소스 상세
 
@@ -191,7 +221,13 @@ flowchart TD
 4. 그 다음에야 Valkey Helm release가 `auth.enabled=true`로 롤링 재기동 → 이 시점엔 이미 `valkey-secret`이 존재하므로 정상 기동(StatefulSet이라 node-0/1/2 순차 재시작, 매 순간 최소 2개는 살아있음)
 5. legacy-php Deployment도 같은 시점에 `REDIS_PASSWORD` env 반영되어 재기동
 
-실제로 이 순서로 진행했을 때도 **완전히 무중단은 아니었다** — 롤아웃 중 HTTP 스모크체크에서 504가 한 번 관측됐다(직후 재시도에서 200 회복). StatefulSet 롤링 재시작 도중, 아직 재시작 안 한 파드는 구버전 무인증 상태, 이미 재시작한 파드는 신버전 인증 상태로 **잠깐 공존하는 구간**이 있기 때문이다. 세션 데이터 자체는 AOF 퍼시스턴스로 보존되어 유실은 없었다(재기동 전후 `DBSIZE` 49 → 48, TTL 만료로 자연 감소한 것으로 데이터 유실이 아님). 이번엔 라이브 트래픽이 없는 개발계였기 때문에 이 정도 갭은 감수할 수 있었지만, 운영계라면 이 갭 자체를 없애는 설계가 필요하다.
+실제로 이 순서로 진행했을 때도 **완전히 무중단은 아니었다** — 롤아웃 중 HTTP 스모크체크에서 504가 한 번 관측됐다(직후 재시도에서 200 회복).
+
+StatefulSet 롤링 재시작 도중, 아직 재시작 안 한 파드는 구버전 무인증 상태, 이미 재시작한 파드는 신버전 인증 상태로 **잠깐 공존하는 구간**이 있기 때문이다.
+
+세션 데이터 자체는 AOF 퍼시스턴스로 보존되어 유실은 없었다(재기동 전후 `DBSIZE` 49 → 48, TTL 만료로 자연 감소한 것으로 데이터 유실이 아님).
+
+이번엔 라이브 트래픽이 없는 개발계였기 때문에 이 정도 갭은 감수할 수 있었지만, 운영계라면 이 갭 자체를 없애는 설계가 필요하다.
 
 ### 3-7-1. 참고 — 운영계라면 이 갭을 어떻게 없애나
 
@@ -214,7 +250,9 @@ ACL SETUSER default -nopass
 ACL SAVE
 ```
 
-이렇게 하면 "서버는 이미 인증을 요구하는데 아직 재시작 안 한 클라이언트가 붙는" 갭 자체가 생기지 않는다 — 서버가 신/구 상태를 동시에 허용하는 구간을 의도적으로 만들고, 모든 클라이언트가 넘어온 뒤에 구 상태를 끊는 순서다. Bitnami Valkey/Redis 차트가 기본 제공하는 `auth.enabled` 토글은 이 중간 상태를 표현하지 못하기 때문에, 이걸 쓰려면 Helm 값 대신 `ACL SETUSER`를 배포 파이프라인에 직접 넣어야 한다.
+이렇게 하면 "서버는 이미 인증을 요구하는데 아직 재시작 안 한 클라이언트가 붙는" 갭 자체가 생기지 않는다.
+
+서버가 신/구 상태를 동시에 허용하는 구간을 의도적으로 만들고, 모든 클라이언트가 넘어온 뒤에 구 상태를 끊는 순서다. Bitnami Valkey/Redis 차트가 기본 제공하는 `auth.enabled` 토글은 이 중간 상태를 표현하지 못하기 때문에, 이걸 쓰려면 Helm 값 대신 `ACL SETUSER`를 배포 파이프라인에 직접 넣어야 한다.
 
 **② 인프라 레벨 — PodDisruptionBudget과 클라이언트 재시도**
 
@@ -242,7 +280,9 @@ $ valkey-cli -h valkey-node-1... -p 6379 -a "$PASS" --no-auth-warning DBSIZE
 
 ### 4-1. 비밀번호만으로는 부족한 이유 (심층방어)
 
-`requirepass`는 "누가 접속하든 비밀번호를 모르면 명령을 실행 못 한다"는 **애플리케이션 레벨** 방어다. 하지만 비밀번호가 코드/로그/에러 메시지 어딘가로 새어나가거나, 향후 다른 팀이 실수로 같은 네임스페이스에 디버깅용 파드를 띄우고 우연히 비밀번호를 알게 되는 상황을 가정하면, **네트워크 레벨에서 애초에 연결 자체가 안 되게** 막는 게 표준적인 심층방어(defense-in-depth)다.
+`requirepass`는 "누가 접속하든 비밀번호를 모르면 명령을 실행 못 한다"는 **애플리케이션 레벨** 방어다.
+
+하지만 비밀번호가 코드/로그/에러 메시지 어딘가로 새어나가거나, 향후 다른 팀이 실수로 같은 네임스페이스에 디버깅용 파드를 띄우고 우연히 비밀번호를 알게 되는 상황을 가정하면, **네트워크 레벨에서 애초에 연결 자체가 안 되게** 막는 게 표준적인 심층방어(defense-in-depth)다.
 
 ### 4-2. VPC CNI 네트워크 정책 컨트롤러
 
@@ -254,11 +294,15 @@ configuration_values = jsonencode({
 })
 ```
 
-이 값이 `false`(또는 미설정)인 동안에는, k8s에 `NetworkPolicy` YAML을 아무리 배포해도 **실제로는 아무 트래픽도 차단되지 않는다** — 오브젝트는 API 서버에 존재하지만 강제할 주체(컨트롤러)가 없기 때문이다. 그래서 `netpol-valkey.yaml`을 먼저 커밋해둬도 위험하지 않았다 — 이 addon 설정이 `terraform apply`로 반영되는 순간부터 비로소 "살아있는" 정책이 된다.
+이 값이 `false`(또는 미설정)인 동안에는, k8s에 `NetworkPolicy` YAML을 아무리 배포해도 **실제로는 아무 트래픽도 차단되지 않는다** — 오브젝트는 API 서버에 존재하지만 강제할 주체(컨트롤러)가 없기 때문이다.
+
+그래서 `netpol-valkey.yaml`을 먼저 커밋해둬도 위험하지 않았다 — 이 addon 설정이 `terraform apply`로 반영되는 순간부터 비로소 "살아있는" 정책이 된다.
 
 ### 4-3. netpol-valkey.yaml 상세
 
-k8s NetworkPolicy의 동작 원리상 중요한 포인트: **`podSelector`로 한 번이라도 선택된 파드는 그 순간부터 "명시적으로 허용한 트래픽 외 전부 거부"로 바뀐다.** 별도로 default-deny 정책을 먼저 깔 필요가 없다 — 아래 정책 하나가 존재하는 것만으로 valkey 파드는 규칙에 없는 모든 ingress/egress가 자동 차단된다.
+k8s NetworkPolicy의 동작 원리상 중요한 포인트가 있다.
+
+**`podSelector`로 한 번이라도 선택된 파드는 그 순간부터 "명시적으로 허용한 트래픽 외 전부 거부"로 바뀐다.** 별도로 default-deny 정책을 먼저 깔 필요가 없다 — 아래 정책 하나가 존재하는 것만으로 valkey 파드는 규칙에 없는 모든 ingress/egress가 자동 차단된다.
 
 ```mermaid
 flowchart LR
@@ -298,8 +342,17 @@ cookie_secure: true
 cookie_samesite: 'lax'
 ```
 
-- **`cookie_secure`** — 브라우저가 세션 쿠키를 HTTPS 연결에서만 전송하게 강제하는 `Secure` 속성. 이게 없으면 이론상 HTTP로 다운그레이드된 요청에도 쿠키가 실려서 중간자(MITM)에게 노출될 수 있다. `'auto'` 대신 **`true`로 고정**한 이유: `'auto'`는 Symfony가 `Request::isSecure()`로 매 요청마다 판단하는데, 이건 ALB가 보내는 `X-Forwarded-Proto` 헤더를 신뢰하도록 `TRUSTED_PROXIES`가 설정돼 있어야 정확히 동작한다. 이 앱은 아직 `TRUSTED_PROXIES` 환경변수가 설정 안 된 코드 경로가 있어서, `'auto'`로 두면 조건에 따라 `Secure` 플래그가 안 붙는 경우가 생길 수 있었다. 이 사이트는 ALB가 443만 받고 나머지는 강제 리다이렉트하는 **HTTPS 전용 사이트**이므로, 조건부 판단 없이 `true`로 고정하는 게 더 확실하다.
-- **`cookie_samesite: 'lax'`** — 다른 사이트에서 걸어온 링크로 유입될 때는 쿠키를 보내되(일반 사용자 경험이 안 깨짐), `<img>`/`<form>` 같은 크로스사이트 자동 요청에는 쿠키를 안 보내 CSRF 공격 표면을 줄이는 옵션.
+**`cookie_secure`** — 브라우저가 세션 쿠키를 HTTPS 연결에서만 전송하게 강제하는 `Secure` 속성.
+
+이게 없으면 이론상 HTTP로 다운그레이드된 요청에도 쿠키가 실려서 중간자(MITM)에게 노출될 수 있다.
+
+`'auto'` 대신 **`true`로 고정**한 이유는 이렇다:
+
+- `'auto'`는 Symfony가 `Request::isSecure()`로 매 요청마다 판단하는데, 이건 ALB가 보내는 `X-Forwarded-Proto` 헤더를 신뢰하도록 `TRUSTED_PROXIES`가 설정돼 있어야 정확히 동작한다
+- 이 앱은 아직 `TRUSTED_PROXIES` 환경변수가 설정 안 된 코드 경로가 있어서, `'auto'`로 두면 조건에 따라 `Secure` 플래그가 안 붙는 경우가 생길 수 있었다
+- 이 사이트는 ALB가 443만 받고 나머지는 강제 리다이렉트하는 **HTTPS 전용 사이트**이므로, 조건부 판단 없이 `true`로 고정하는 게 더 확실하다
+
+**`cookie_samesite: 'lax'`** — 다른 사이트에서 걸어온 링크로 유입될 때는 쿠키를 보내되(일반 사용자 경험이 안 깨짐), `<img>`/`<form>` 같은 크로스사이트 자동 요청에는 쿠키를 안 보내 CSRF 공격 표면을 줄이는 옵션이다.
 
 ### 5-2. Raw PHP 쪽은 이미 되어 있었다
 
@@ -310,9 +363,17 @@ session_set_cookie_params(0, '/; samesite=None', $_cfg['session_domain'], true, 
 //                                    ↑ samesite=None       ↑secure=true ↑httponly=true
 ```
 
-`samesite=None`을 쓰는 이유는 PG사 결제 콜백이나 소셜로그인 콜백은 **다른 도메인(PG사, OAuth 제공자)에서 우리 사이트로 리다이렉트되며 쿠키를 동반해야** 세션이 유지되기 때문 — `Lax`로는 이런 크로스사이트 리다이렉트 흐름에서 쿠키가 씹힐 수 있다. 그래서 이 부분은 손대지 않고 그대로 뒀다. Symfony 쪽은 PG 콜백을 직접 처리하지 않는 영역이라 `Lax`로 설정해도 문제없다.
+`samesite=None`을 쓰는 이유는 PG사 결제 콜백이나 소셜로그인 콜백은 **다른 도메인(PG사, OAuth 제공자)에서 우리 사이트로 리다이렉트되며 쿠키를 동반해야** 세션이 유지되기 때문이다. `Lax`로는 이런 크로스사이트 리다이렉트 흐름에서 쿠키가 씹힐 수 있다.
 
-> **보완 — `SameSite=Lax`와 `Secure`는 서로 다른 위협을 막는다.** `Secure`는 전송 구간(네트워크)의 도청을, `SameSite`는 브라우저가 "어떤 요청에 쿠키를 자동으로 실어 보낼지"를 다룬다. 즉 `Secure=true`만으로는 CSRF를 막지 못하고, `SameSite=Lax`만으로는 HTTP 평문 전송을 막지 못한다 — 이번처럼 두 옵션을 같이 켜야 한 세트로 의미가 있다. `HttpOnly`(raw PHP 쪽엔 이미 있음)까지 포함하면 XSS로 인한 쿠키 탈취까지 막아 세 옵션이 삼각으로 서로 다른 공격 표면을 커버하는 구조가 된다.
+그래서 이 부분은 손대지 않고 그대로 뒀다. Symfony 쪽은 PG 콜백을 직접 처리하지 않는 영역이라 `Lax`로 설정해도 문제없다.
+
+> **보완 — `SameSite=Lax`와 `Secure`는 서로 다른 위협을 막는다.**
+>
+> `Secure`는 전송 구간(네트워크)의 도청을, `SameSite`는 브라우저가 "어떤 요청에 쿠키를 자동으로 실어 보낼지"를 다룬다.
+>
+> 즉 `Secure=true`만으로는 CSRF를 막지 못하고, `SameSite=Lax`만으로는 HTTP 평문 전송을 막지 못한다 — 이번처럼 두 옵션을 같이 켜야 한 세트로 의미가 있다.
+>
+> `HttpOnly`(raw PHP 쪽엔 이미 있음)까지 포함하면 XSS로 인한 쿠키 탈취까지 막아 세 옵션이 삼각으로 서로 다른 공격 표면을 커버하는 구조가 된다.
 
 ## 6. Velero 백업/DR 도입
 
@@ -335,7 +396,13 @@ session_set_cookie_params(0, '/; samesite=None', $_cfg['session_domain'], true, 
 
 즉 Velero는 "정의서(코드)는 안전하지만, **런타임에만 존재하는 값과 데이터**는 여전히 단일 장애점"이라는 GitOps의 사각지대를 메꾼다. 이번엔 특히 Valkey의 EBS 퍼시스턴스와 클러스터 전체 리소스 정의를 매일 백업하도록 구성했다.
 
-> **보완 — Velero가 못 하는 것도 짚어두자.** Velero의 K8s 리소스 백업은 "그 시점의 API 오브젝트 JSON"이지, **PV 스냅샷과 리소스 백업이 원자적으로 한 트랜잭션에 묶이지는 않는다.** 스냅샷을 뜨는 그 몇 초 사이에도 Valkey는 계속 쓰기를 받고 있으므로, 엄밀히는 "크래시 컨시스턴트(crash-consistent)" 수준의 복구이지 "애플리케이션 컨시스턴트" 수준은 아니다. 세션 캐시처럼 유실을 어느 정도 감내할 수 있는 데이터엔 충분하지만, 트랜잭션 정합성이 중요한 데이터라면 pre/post hook(`velero backup ... --hook`)으로 애플리케이션에 flush를 지시하는 절차가 별도로 필요하다.
+> **보완 — Velero가 못 하는 것도 짚어두자.**
+>
+> Velero의 K8s 리소스 백업은 "그 시점의 API 오브젝트 JSON"이지, **PV 스냅샷과 리소스 백업이 원자적으로 한 트랜잭션에 묶이지는 않는다.**
+>
+> 스냅샷을 뜨는 그 몇 초 사이에도 Valkey는 계속 쓰기를 받고 있으므로, 엄밀히는 "크래시 컨시스턴트(crash-consistent)" 수준의 복구이지 "애플리케이션 컨시스턴트" 수준은 아니다.
+>
+> 세션 캐시처럼 유실을 어느 정도 감내할 수 있는 데이터엔 충분하지만, 트랜잭션 정합성이 중요한 데이터라면 pre/post hook(`velero backup ... --hook`)으로 애플리케이션에 flush를 지시하는 절차가 별도로 필요하다.
 
 ### 6-2. 전체 아키텍처
 
@@ -406,7 +473,11 @@ resource "aws_eks_pod_identity_association" "velero" {
 }
 ```
 
-**EKS Pod Identity**는 IRSA(IAM Roles for Service Accounts)의 후속 세대 메커니즘이다 — 파드가 뜰 때 `eks-pod-identity-agent`(이미 이 클러스터에 addon으로 설치돼 있음)가 "이 네임스페이스의 이 서비스어카운트로 뜬 파드는 이 IAM Role을 쓸 수 있다"는 매핑을 보고 자동으로 임시 자격증명을 그 파드에 주입한다. **AWS access key/secret key를 시크릿으로 관리할 필요가 전혀 없다** — `credentials.useSecret: false`(6-4절)로 이 방식임을 명시했다.
+**EKS Pod Identity**는 IRSA(IAM Roles for Service Accounts)의 후속 세대 메커니즘이다.
+
+파드가 뜰 때 `eks-pod-identity-agent`(이미 이 클러스터에 addon으로 설치돼 있음)가 "이 네임스페이스의 이 서비스어카운트로 뜬 파드는 이 IAM Role을 쓸 수 있다"는 매핑을 보고 자동으로 임시 자격증명을 그 파드에 주입한다.
+
+**AWS access key/secret key를 시크릿으로 관리할 필요가 전혀 없다** — `credentials.useSecret: false`(6-4절)로 이 방식임을 명시했다.
 
 ```hcl
 resource "aws_iam_role_policy" "velero" {
@@ -451,7 +522,9 @@ initContainers:
         name: plugins
 ```
 
-**`initContainers`가 왜 필요한가** — Velero 서버 자체는 클라우드 프로바이더 중립적인 코어 로직만 갖고 있고, "S3에 어떻게 업로드하는지", "EBS 스냅샷을 어떻게 뜨는지"는 프로바이더별 플러그인 바이너리가 담당한다. `velero-plugin-for-aws` 이미지가 이 initContainer로 한 번 실행되면서 플러그인 바이너리를 `/target`(Velero 메인 컨테이너와 공유하는 볼륨)에 복사해두고 종료한다 — 이후 Velero 메인 프로세스가 이 플러그인을 로드해서 AWS 관련 작업을 위임한다.
+**`initContainers`가 왜 필요한가** — Velero 서버 자체는 클라우드 프로바이더 중립적인 코어 로직만 갖고 있고, "S3에 어떻게 업로드하는지", "EBS 스냅샷을 어떻게 뜨는지"는 프로바이더별 플러그인 바이너리가 담당한다.
+
+`velero-plugin-for-aws` 이미지가 이 initContainer로 한 번 실행되면서 플러그인 바이너리를 `/target`(Velero 메인 컨테이너와 공유하는 볼륨)에 복사해두고 종료한다 — 이후 Velero 메인 프로세스가 이 플러그인을 로드해서 AWS 관련 작업을 위임한다.
 
 ```yaml
 configuration:
@@ -498,7 +571,13 @@ schedules:
 
 `schedule` 필드는 표준 cron 표현식(`분 시 일 월 요일`)이다. EKS 클러스터의 시스템 시간은 UTC라 `18 * * *`가 한국 시간 새벽 3시가 된다.
 
-> **보완 — TTL(720h)과 RPO/RTO 감각.** 스케줄이 24시간 주기이므로 이 구성의 **RPO(복구 시점 목표)는 최대 24시간**이다 — 사고 직전 백업이 아니라 "가장 최근 새벽 3시" 시점으로 되돌아간다는 뜻. 세션 데이터처럼 TTL이 짧은 캐시성 데이터엔 크게 문제되지 않지만, 나중에 RDS나 다른 상태 저장 컴포넌트로 Velero 범위를 넓힐 때는 이 RPO가 데이터 특성에 맞는지 따로 검토해야 한다. TTL 720h(30일)은 "몇 주 전 상태로 되돌려야 할 사고"까지 커버하되, S3 자체 라이프사이클(90일)이 이중 안전판 역할을 한다.
+> **보완 — TTL(720h)과 RPO/RTO 감각.**
+>
+> 스케줄이 24시간 주기이므로 이 구성의 **RPO(복구 시점 목표)는 최대 24시간**이다 — 사고 직전 백업이 아니라 "가장 최근 새벽 3시" 시점으로 되돌아간다는 뜻이다.
+>
+> 세션 데이터처럼 TTL이 짧은 캐시성 데이터엔 크게 문제되지 않지만, 나중에 RDS나 다른 상태 저장 컴포넌트로 Velero 범위를 넓힐 때는 이 RPO가 데이터 특성에 맞는지 따로 검토해야 한다.
+>
+> TTL 720h(30일)은 "몇 주 전 상태로 되돌려야 할 사고"까지 커버하되, S3 자체 라이프사이클(90일)이 이중 안전판 역할을 한다.
 
 ### 6-6. 실제로 백업/복원은 어떻게 하나
 
@@ -552,7 +631,16 @@ Plan: 13 to add, 1 to change, 0 to destroy.
 Apply complete! Resources: 13 added, 1 changed, 0 destroyed.
 ```
 
-생성된 13개: KMS 키+별칭(velero), S3 버킷+버저닝+암호화+퍼블릭차단+라이프사이클(velero, 5개), IAM Role+Policy+PodIdentityAssociation(velero, 3개), Secrets Manager 시크릿+버전+random_password(valkey, 3개). 변경된 1개: `vpc_cni` addon의 `configuration_values`. **삭제 0개**를 plan 단계에서 반드시 확인했다 — 코드상으로는 정리된 것처럼 보이지만 실제로는 살아있는 다른 운영 리소스를 이번 apply가 건드리지 않는다는 걸 검증하는 게 중요했다.
+생성된 13개는 다음과 같다.
+
+- KMS 키+별칭(velero)
+- S3 버킷+버저닝+암호화+퍼블릭차단+라이프사이클(velero, 5개)
+- IAM Role+Policy+PodIdentityAssociation(velero, 3개)
+- Secrets Manager 시크릿+버전+random_password(valkey, 3개)
+
+변경된 1개는 `vpc_cni` addon의 `configuration_values`.
+
+**삭제 0개**를 plan 단계에서 반드시 확인했다 — 코드상으로는 정리된 것처럼 보이지만 실제로는 살아있는 다른 운영 리소스를 이번 apply가 건드리지 않는다는 걸 검증하는 게 중요했다.
 
 **git push 후 관측된 순서**:
 
