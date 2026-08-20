@@ -671,4 +671,3 @@ flowchart TD
 | raw PHP 세션 쿠키 secure/httponly | ✅ 기존에 이미 적용돼 있었음(확인만) |
 | Velero 서버 | ✅ `Running`, BackupStorageLocation `Available` |
 | Velero 데일리 백업 스케줄 | ✅ 등록 완료, 첫 실행은 다음 새벽 3시(KST) |
-| Velero 실제 restore 리허설 | ⏳ 미실시 |
